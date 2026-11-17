@@ -38,6 +38,29 @@ mybatis-plus:
     map-underscore-to-camel-case: true
 
 agent-kit:
+  # ---------------- 引擎 ----------------
+  # legacy     = 自研循环，模型输出 JSON 文本协议（不依赖原生 function calling）
+  # agentscope = AgentScope 的 ReAct 循环，工具走原生 tools 字段
+  # 两者共用同一份 Agent / Tool / 观测 / 评测，换引擎不改业务代码。
+  #
+  # 用环境变量切换：AGENT_KIT_ENGINE=agentscope java -jar ...
+  # 想验证「没引模块会怎样」：把 pom 里的 agent-kit-agentscope 注释掉再设成 agentscope，
+  # 启动会在 Started 之前失败，并直接把该加的依赖片段打出来（EngineGuard 干的）。
+  engine: ${AGENT_KIT_ENGINE:legacy}
+
+  # 只在 engine=agentscope 时生效
+  agentscope:
+    # 声称「已完成」但本轮零工具调用 → 自动补一轮强制纠正
+    write-claim-guard: true
+    # 工具调用时前端状态行的文案，不配则显示「正在处理」
+    tool-labels:
+      todo_add: 记待办
+      todo_list: 看待办
+      todo_done: 划掉待办
+      weather_query: 查天气
+      time_now: 看时间
+    default-tool-label: 处理
+
   # ---------------- 模型 ----------------
   provider: ollama
   base-url: http://localhost:11434

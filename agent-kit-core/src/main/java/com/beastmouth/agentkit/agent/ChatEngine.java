@@ -17,6 +17,15 @@ import java.util.List;
  */
 public interface ChatEngine {
 
+    /** 选择引擎的配置项。两个实现都只认这一个 key，不各搞一套。 */
+    String ENGINE_PROPERTY = "agent-kit.engine";
+
+    /** 自研薄运行时（{@code MainAgent} + {@code SubAgentRunner}），默认值 */
+    String LEGACY = "legacy";
+
+    /** AgentScope 引擎，需要额外引入 {@code agent-kit-agentscope} */
+    String AGENTSCOPE = "agentscope";
+
     /**
      * 处理一轮对话。
      *

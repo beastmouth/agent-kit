@@ -31,7 +31,8 @@ import java.util.Set;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "agent-kit.engine", havingValue = "legacy", matchIfMissing = true)
+@ConditionalOnProperty(name = ChatEngine.ENGINE_PROPERTY, havingValue = ChatEngine.LEGACY,
+        matchIfMissing = true)
 public class MainAgent implements ChatEngine {
 
     private final AgentRegistry agentRegistry;
@@ -40,7 +41,7 @@ public class MainAgent implements ChatEngine {
 
     @Override
     public String engineName() {
-        return "legacy";
+        return ChatEngine.LEGACY;
     }
 
     /**

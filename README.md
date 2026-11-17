@@ -31,18 +31,19 @@
 
 ```
 agent-kit
-├── docs                # 核心文档：架构、快速开始、可观测、评测、接入清单、配置
-├── agent-kit-core      # 契约与运行时：模型、工具、Agent、观测、评测（无 DB 依赖也能编译）
-├── agent-kit-memory    # 可选：长期记忆（Milvus 向量）与会话上下文（Redis 缓存 + 分布式锁）
-├── agent-kit-starter   # Spring Boot Starter：引入即装配 + 建表脚本 + 配置示例
+├── docs                    # 核心文档：架构、快速开始、可观测、评测、接入清单、配置、引擎选型
+├── agent-kit-core          # 契约与运行时：模型、工具、Agent、观测、评测（自研引擎，零额外依赖）
+├── agent-kit-memory        # 可选：长期记忆（Milvus 向量）与会话上下文（Redis 缓存 + 分布式锁）
+├── agent-kit-agentscope    # 可选：AgentScope 引擎实现（agent-kit.engine=agentscope 时生效）
+├── agent-kit-starter       # Spring Boot Starter：引入即装配 + 建表脚本 + 配置示例
 └── examples
-    └── agent-kit-example  # 参考实现：待办 + 天气，演示 Agent/Tool/RunContext/会话与记忆
+    └── agent-kit-example   # 参考实现：待办 + 天气，演示 Agent/Tool/RunContext/会话与记忆
 ```
 
 `examples/` **不在默认构建里**：它是给接入方看的参考，不是脚手架的发布物。
 
 ```bash
-mvn clean package              # 只构建 core / memory / starter
+mvn clean package              # 只构建 core / memory / agentscope / starter
 mvn -Pexamples clean package   # 连示例一起构建
 ```
 
@@ -63,6 +64,13 @@ mvn -Pexamples clean package   # 连示例一起构建
 | `session` | `AgentSessionStore`、`AgentContextCache`、`AgentSessionLock`、`SessionSourceRegistry` |
 | `support` | `AgentKitException`、`ErrorCode`、`Json`、`BaseEntity` |
 
+另外两个模块的包：
+
+| 模块 | 包 | 内容 |
+|---|---|---|
+| `agent-kit-memory` | `memory` / `session` / `memory.support` | 记忆服务与 Milvus 存储、会话存储与缓存锁、`MemoryProperties` |
+| `agent-kit-agentscope` | `agentscope.{config,engine,bridge,model,obs}` | `AgentScopeConfig`、`AgentScopeEngine`、`PromptTailMiddleware`、`ToolBridge`、`ResilientModel`、`ObservingHook`、`RuntimeObs` |
+
 ---
 
 ## 3. 快速开始
@@ -78,6 +86,25 @@ mvn -Pexamples clean package   # 连示例一起构建
 ```
 
 组件扫描由 starter 自动完成（`AgentKitAutoConfiguration`），不需要在你的启动类上加 `scanBasePackages`。
+
+**引擎按需引入**：`agent-kit-core` 自带自研引擎（`legacy`），开箱即用。想换 AgentScope 时
+再加一个依赖、改一行配置——两者缺一个都会在启动期被 `EngineGuard` 拦下并提示：
+
+```xml
+<dependency>
+    <groupId>com.beastmouth.kit</groupId>
+    <artifactId>agent-kit-agentscope</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+```yaml
+agent-kit:
+  engine: agentscope      # 不写 = legacy
+```
+
+两个引擎共用 `ChatEngine` 契约、`ToolInterceptor`、`ai_*` 观测表与黄金集，换引擎不改业务代码。
+完整对比与回滚方式见 [docs/08-引擎选型](docs/08-引擎选型.md)。
 
 ### 3.2 建表
 

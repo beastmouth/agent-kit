@@ -33,6 +33,14 @@
             <groupId>com.beastmouth.kit</groupId>
             <artifactId>agent-kit-memory</artifactId>
         </dependency>
+        <!--
+            可选引擎。加在这里只是为了让示例能演示「同一份业务代码换个引擎跑」；
+            真实项目不引这个坐标时，legacy 引擎照常工作，一个字节都不会多下载。
+        -->
+        <dependency>
+            <groupId>com.beastmouth.kit</groupId>
+            <artifactId>agent-kit-agentscope</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

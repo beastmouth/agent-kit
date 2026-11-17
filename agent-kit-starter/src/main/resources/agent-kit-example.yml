@@ -10,6 +10,11 @@ agent-kit:
   # 总开关：false 时整套组件不装配（代码在、能力关）
   enabled: true
 
+  # ---------------- 引擎 ----------------
+  # legacy（默认）= 自研薄运行时，随 core 自带；agentscope = 需额外引入 agent-kit-agentscope
+  # 两者共用 ChatEngine 契约、工具拦截器、观测表与黄金集。写错或模块缺失会在启动期直接失败。
+  engine: legacy
+
   # ---------------- 模型渠道 ----------------
   # 首选渠道，对应 ModelProvider#id()：deepseek / siliconflow / ollama
   provider: deepseek

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.beastmouth.kit</groupId>
+        <artifactId>agent-kit</artifactId>
+        <version>0.1.0</version>
+    </parent>
+
+    <artifactId>agent-kit-agentscope</artifactId>
+    <name>agent-kit-agentscope</name>
+    <description>可选引擎：用 AgentScope 的 ReAct 循环替换自研循环，其余（Agent/Tool/观测/评测）完全复用</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.beastmouth.kit</groupId>
+            <artifactId>agent-kit-core</artifactId>
+        </dependency>
+
+        <!--
+            AgentScope 核心。刻意不用 agentscope-spring-boot-starter：
+            它的 spring-boot-autoconfigure 是 4.0.1，与 Spring Boot 3.3.5 冲突。
+            这里只引 core，装配由 AgentScopeConfig 自己写。
+        -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-core</artifactId>
+            <exclusions>
+                <!--
+                    okhttp 5.x 把实现拆到了 okhttp-jvm，它与常见的 okhttp 4.x
+                    （被飞书/微信等 SDK 传递引入）是同一套包名的两份完整实现：
+                    加载到哪一份取决于 classpath 扫描顺序，属不可预测行为。
+                    保留 4.12——对话、工具调用、usage 解析路径在 4.12 下均实测可用。
+                -->
+                <exclusion>
+                    <groupId>com.squareup.okhttp3</groupId>
+                    <artifactId>okhttp-jvm</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- OpenAI 兼容协议：DeepSeek / 硅基流动 / one-api 共用这一条通道 -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-openai</artifactId>
+        </dependency>
+        <!-- 本地兜底：云端不可用时降级到 Ollama -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-ollama</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

@@ -51,7 +51,14 @@ export REDIS_PASSWORD='...'
 # 3. 构建并起服务（默认走本机 Ollama；换 DeepSeek 改 application.yml 的 provider）
 mvn -Pexamples clean install -DskipTests
 java -jar examples/agent-kit-example/target/agent-kit-example-0.1.0.jar
+
+# 换引擎跑同一份业务（pom 里已引 agent-kit-agentscope）
+AGENT_KIT_ENGINE=agentscope java -jar examples/agent-kit-example/target/agent-kit-example-0.1.0.jar
 ```
+
+换引擎后启动日志会多一行 `EngineGuard#check#Agent 引擎 = agentscope（AgentScopeEngine）`；
+如果还打印 `classpath 上有 agent-kit-agentscope，但 ...=legacy 生效中`，说明配置没生效。
+两套引擎的差异见 [`docs/08-引擎选型`](../docs/08-引擎选型.md)。
 
 ### 1）先自检装配
 

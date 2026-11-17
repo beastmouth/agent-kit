@@ -21,6 +21,7 @@
     <modules>
         <module>agent-kit-core</module>
         <module>agent-kit-memory</module>
+        <module>agent-kit-agentscope</module>
         <module>agent-kit-starter</module>
     </modules>
 
@@ -32,6 +33,11 @@
         <fastjson2.version>2.0.53</fastjson2.version>
         <ttl.version>2.14.5</ttl.version>
         <milvus-sdk.version>2.5.14</milvus-sdk.version>
+        <!--
+            可选引擎的框架版本。只在 agent-kit-agentscope 里用到，core/memory 完全不引，
+            所以换版本或干脆不引这个模块，都不影响脚手架其余部分。
+        -->
+        <agentscope.version>2.0.4</agentscope.version>
     </properties>
 
     <dependencyManagement>
@@ -50,6 +56,23 @@
                 <groupId>com.beastmouth.kit</groupId>
                 <artifactId>agent-kit-starter</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.beastmouth.kit</groupId>
+                <artifactId>agent-kit-agentscope</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!--
+                AgentScope BOM：只统一它的几个构件版本。
+                刻意不引 agentscope-spring-boot-starter：它依赖 spring-boot-autoconfigure 4.0.1，
+                与 Boot 3.3.5 冲突，装配由本仓库的 AgentScopeConfig 自己写。
+            -->
+            <dependency>
+                <groupId>io.agentscope</groupId>
+                <artifactId>agentscope-bom</artifactId>
+                <version>${agentscope.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>com.baomidou</groupId>
@@ -73,6 +96,21 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <repositories>
+        <!--
+            阿里云镜像未同步 io/agentscope（实测该路径 404），补官方源兜底。
+            Maven 按声明顺序逐个尝试，命中即止，不影响其余构件仍走镜像；
+            若 settings.xml 用 <mirrorOf>*</mirrorOf> 强制镜像，需为该 mirror 加
+            <mirrorOf>*,!central-direct</mirrorOf> 例外，否则这里同样被改写。
+        -->
+        <repository>
+            <id>central-direct</id>
+            <url>https://repo1.maven.org/maven2</url>
+            <releases><enabled>true</enabled></releases>
+            <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+    </repositories>
 
     <build>
         <pluginManagement>
