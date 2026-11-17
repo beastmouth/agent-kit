@@ -24,6 +24,7 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -131,6 +132,70 @@ class ModelRouteTest {
         props.getEndpoints().put("cheap", endpoint);
         assertTrue(props.streamOf("cheap"), "渠道配置优先于全局");
         assertFalse(props.streamOf("strong"), "没单独配的渠道仍跟随全局");
+    }
+
+    @Test
+    @DisplayName("endpoints 里出现没有内置实现的 id：自动注册为自定义 OpenAI 兼容渠道")
+    void customProviderFromEndpoints() {
+        AiProperties props = props();
+        AiProperties.Endpoint custom = new AiProperties.Endpoint();
+        custom.setBaseUrl("https://llm.internal.corp/v1");
+        custom.setModel("qwen2.5-72b");
+        custom.setApiKey("internal-key");
+        props.getEndpoints().put("custom", custom);
+
+        ModelProviderRegistry registry = registry(props);
+        assertEquals("custom", registry.byId("custom").id(),
+                "endpoints 里的未知键应长出同名渠道，零代码接入公司内网网关");
+        assertTrue(registry.availableIds().containsAll(List.of("custom", "cheap", "strong", "embed")),
+                "自定义渠道与内置渠道并存");
+    }
+
+    @Test
+    @DisplayName("自定义渠道可以进 routes 参与业务分流")
+    void customProviderServesRoutes() {
+        AiProperties props = props();
+        AiProperties.Endpoint custom = new AiProperties.Endpoint();
+        custom.setBaseUrl("https://llm.internal.corp/v1");
+        custom.setModel("qwen2.5-72b");
+        props.getEndpoints().put("company-gateway", custom);
+
+        AiProperties.Route finance = new AiProperties.Route();
+        finance.setProvider("company-gateway");
+        props.getRoutes().put("finance", finance);
+
+        ModelProviderRegistry registry = registry(props);
+        ModelProviderRegistry.RoutePlan plan = registry.plan("finance");
+        assertEquals("company-gateway", plan.primary());
+        assertEquals("company-gateway", registry.route("finance").id());
+    }
+
+    @Test
+    @DisplayName("自定义渠道路由键写错：仍然回落默认并告警，不抛错")
+    void customProviderUnknownKeyStillFallsBack() {
+        AiProperties props = props();
+        AiProperties.Endpoint custom = new AiProperties.Endpoint();
+        custom.setBaseUrl("https://llm.internal.corp/v1");
+        custom.setModel("qwen2.5-72b");
+        props.getEndpoints().put("custom", custom);
+
+        ModelProviderRegistry registry = registry(props);
+        ModelProviderRegistry.RoutePlan plan = registry.plan("custmo");
+        assertNull(plan.key());
+        assertEquals("cheap", plan.primary());
+    }
+
+    @Test
+    @DisplayName("endpoints 键与内置渠道同名：是给内置渠道填参数，不重复注册")
+    void endpointForBuiltinIsNotReplaced() {
+        AiProperties props = props();
+        AiProperties.Endpoint cheap = new AiProperties.Endpoint();
+        cheap.setBaseUrl("https://cheap.example.com/v1");
+        props.getEndpoints().put("cheap", cheap);
+
+        ModelProviderRegistry registry = registry(props);
+        assertSame(Fake.class, registry.byId("cheap").getClass(),
+                "代码里显式注册的 Bean 优先，配置键只是给它填端点参数");
     }
 
     // ---------------------------------------------------------------- 夹具

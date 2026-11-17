@@ -17,8 +17,10 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 提供方注册表：收集容器里所有 {@link ModelProvider}，按路由键解析出这次该用哪个渠道。
  *
- * <p>新增提供方只需写一个 {@code @Component implements ModelProvider}，这里自动收录，
- * 不出现 if/else 分支，也不需要在配置文件里预先声明类名。</p>
+ * <p>新增提供方有两条路：内置厂商（OpenAI 兼容协议）直接在 {@code agent-kit.endpoints.<id>}
+ * 配一段端点，启动时自动长出同名渠道（{@link CustomModelProvider}），零代码；要自定义协议
+ * 的才写一个 {@code @Component implements ModelProvider}，这里自动收录，不出现 if/else 分支，
+ * 也不需要在配置文件里预先声明类名。</p>
  *
  * <h3>为什么先出 {@link RoutePlan} 再出 {@link ModelProvider}</h3>
  * <p>两套引擎的渠道组合方式完全不同：legacy 用 {@link FailoverModelProvider} 包一层
@@ -55,10 +57,41 @@ public class ModelProviderRegistry {
         this.properties = properties;
         this.observers = observers;
         beans.forEach(provider -> providers.put(provider.id(), provider));
+        registerConfiguredProviders();
         log.info("ModelProviderRegistry#init#已注册提供方={} 默认={} 路由={}",
                 providers.keySet(), properties.getProvider(),
                 properties.getRoutes() == null ? List.of() : properties.getRoutes().keySet());
         checkRoutes(properties);
+    }
+
+    /**
+     * 把 {@code agent-kit.endpoints} 里没有内置实现的键注册成自定义渠道。
+     *
+     * <p>内置渠道（deepseek / siliconflow / ollama）是 4 行空壳类，差异全在配置里；
+     * 那么第四个、第五个厂商根本不需要写类——endpoints 里出现一个不认识的名字，
+     * 就自动长出一个 OpenAI 兼容渠道。这是「零代码接新厂商」的落地方式：
+     * 配 {@code endpoints.custom} 得到 {@code custom}，配 {@code endpoints.company-gateway}
+     * 得到 {@code company-gateway}，多个自定义渠道可并存，都能进 {@code routes} 分流。</p>
+     *
+     * <p>冲突时的语义：键名撞上内置 id（如 {@code endpoints.deepseek}）是<b>正常配置</b>
+     * 不是冲突——它只是给内置渠道填参数；而<b>业务代码里自定义的 Bean 撞上配置键</b>时
+     * 以 Bean 为准（Bean 是显式代码意图），并把配置键跳过 + warn。错只错在「同一个名字
+     * 两处定义」，提醒一句比静默覆盖好。</p>
+     */
+    private void registerConfiguredProviders() {
+        Map<String, AiProperties.Endpoint> endpoints = properties.getEndpoints();
+        if (endpoints == null || endpoints.isEmpty()) {
+            return;
+        }
+        for (String key : endpoints.keySet()) {
+            if (providers.containsKey(key)) {
+                continue;
+            }
+            CustomModelProvider custom = new CustomModelProvider(properties, key);
+            providers.put(key, custom);
+            log.info("ModelProviderRegistry#init#自定义渠道已注册 id={}（来自 agent-kit.endpoints.{}，"
+                    + "OpenAI 兼容协议）", key, key);
+        }
     }
 
     /**

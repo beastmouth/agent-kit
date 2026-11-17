@@ -248,7 +248,7 @@ curl -s localhost:18080/demo/chat -H 'Content-Type: application/json' \
 
 | 扩展点 | 接口 | 用途 | 不实现时 |
 |---|---|---|---|
-| 模型渠道 | `ModelProvider` | 接新厂商；OpenAI 兼容的继承 `OpenAiCompatibleProvider` 只改 id。同一厂商开两档模型 = 两个子类两个 id | 内置 deepseek / siliconflow / ollama |
+| 模型渠道 | `ModelProvider` | OpenAI 兼容的厂商在 `endpoints` 里配一段端点即自动注册（含 `custom` 等任意自命名渠道），零代码；非兼容协议才继承 `OpenAiCompatibleProvider` 改 id | 内置 deepseek / siliconflow / ollama |
 | 工具 | `AgentTool` | 业务能力 | 无工具，纯对话 |
 | 子 Agent | `Agent` | 领域拆分（提示词 + 工具白名单） | 主 Agent 直接回话 |
 | 工具横切 | `ToolInterceptor` | 权限、审计、限流、脱敏（可多个，用 `@Order` 定顺序） | 全放行 |
