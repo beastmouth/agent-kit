@@ -144,5 +144,15 @@
                 <module>examples/agent-kit-example</module>
             </modules>
         </profile>
+        <!--
+          运维工具默认不参与构建：给运维预建/校验/重建 Milvus collection 用，
+          不是脚手架的发布物。`mvn -Ptools clean package` 才编进来。
+        -->
+        <profile>
+            <id>tools</id>
+            <modules>
+                <module>agent-kit-tools</module>
+            </modules>
+        </profile>
     </profiles>
 </project>
