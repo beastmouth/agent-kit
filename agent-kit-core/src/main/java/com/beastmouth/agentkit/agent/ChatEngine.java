@@ -12,7 +12,7 @@ import java.util.List;
  * 黄金集回放）只认这个接口，不认具体实现——换引擎时这三处一行都不用改。</p>
  *
  * <p><b>契约</b>：返回的 {@link AgentResult} 语义不变（一句话结论 + 动作序列），
- * 流式事件仍通过 {@link ChatSink} 的三类回调输出。任何实现都不得改变这两个约定，
+ * 流式事件仍通过 {@link ChatSink} 的四帧输出（`error` 是收尾帧，见 {@code StreamFailure}）。任何实现都不得改变这两个约定，
  * 否则前端 SSE 帧与质量规则会同时失效。</p>
  */
 public interface ChatEngine {

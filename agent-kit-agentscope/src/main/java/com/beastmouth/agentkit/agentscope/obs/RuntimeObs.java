@@ -139,6 +139,15 @@ public class RuntimeObs {
                 }
                 sink.delta(text);
             }
+
+            /**
+             * 必须转发。这层是纯装饰，漏掉一个方法就等于「引擎推了错误帧、
+             * 但用户在装饰层后面永远收不到」——而且不会有任何编译或运行错误提示。
+             */
+            @Override
+            public void error(String code, String message, boolean retryable, String hint) {
+                sink.error(code, message, retryable, hint);
+            }
         };
     }
 

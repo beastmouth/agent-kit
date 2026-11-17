@@ -49,6 +49,11 @@ public class OllamaModelProvider implements ModelProvider {
     }
 
     @Override
+    public boolean streaming() {
+        return properties.streamOf(ID);
+    }
+
+    @Override
     public ModelReply chat(List<ChatMessage> messages, boolean jsonMode) {
         long start = System.currentTimeMillis();
         AiProperties.Endpoint endpoint = properties.endpoint(ID);

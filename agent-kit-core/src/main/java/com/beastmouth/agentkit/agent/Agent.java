@@ -25,4 +25,19 @@ public interface Agent {
 
     /** 系统提示词（角色、约束、输出协议），不含工具清单——工具清单由运行器自动拼接 */
     String systemPrompt();
+
+    /**
+     * 该子 Agent 默认使用的模型路由键（对应 {@code agent-kit.routes.<键>}）。
+     *
+     * <p>返回 {@code null}（默认）表示不表态，跟随全局默认渠道。请求级标签
+     * {@code model.route} 优先级更高——业务侧可以临时把这个 Agent 切到别的渠道，
+     * 不需要改代码或重启。</p>
+     *
+     * <p><b>为什么放在 Agent 上而不是配置里</b>：Agent 的模型档位是它自身能力的一部分
+     * （写操作要强模型、纯查询用便宜模型），跟 {@link #toolNames()} 一样属于实现细节；
+     * 写在配置里迟早出现「新增 Agent 忘了配映射、默默跑了默认渠道」。</p>
+     */
+    default String modelRoute() {
+        return null;
+    }
 }

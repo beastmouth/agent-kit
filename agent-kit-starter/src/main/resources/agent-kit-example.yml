@@ -23,6 +23,22 @@ agent-kit:
   # 过载熔断冷却（秒）：首选失败后这段时间新请求直接走兜底
   failover-cooldown-seconds: 60
 
+  # 意图路由（判断「这句话归哪个子 Agent」）单独用的渠道 id；留空 = 跟随本次请求的路由。
+  # 这一步每轮必跑、只输出一个 JSON，指到本地小模型能省一笔云端 token。
+  intent-provider: ""
+
+  # 按业务分渠道：键名 = RunContext.labels["model.route"]，或 Agent#modelRoute() 的返回值。
+  # 解析顺序：请求标签 > Agent 声明 > 上面的 provider。
+  # 注意与下面 router.* 不是一回事：这里是「用哪个模型」，那里是「交给哪个子 Agent」。
+  routes:
+    finance:
+      provider: siliconflow
+      description: 财务数据走境内合规渠道，刻意不配兜底（跨渠道降级等于绕过合规）
+
+  # 是否流式输出最终答复。内网反向代理把 SSE 缓冲到收完才吐、或网关不认 stream=true 时关掉。
+  # 单渠道覆盖：endpoints.<id>.stream（例如本地 ollama 关掉、云端保持流式）
+  stream: true
+
   # 顶层默认端点（未在 endpoints 里单独配置的渠道用它）
   base-url: https://api.deepseek.com
   model: deepseek-chat
@@ -43,6 +59,8 @@ agent-kit:
       model: qwen3:8b
       # 本地模型的思考开关；null 表示不发送该字段
       think: false
+      # 该渠道是否流式，覆盖顶层 stream；不写 = 跟随全局
+      # stream: false
 
   # 采样与预算
   temperature: 0.1

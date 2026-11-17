@@ -88,7 +88,21 @@ public class MainAgent implements ChatEngine {
             sink.status("delegate", agents.size() > 1
                     ? "正在处理（%d/%d）".formatted(i + 1, agents.size())
                     : "正在处理");
-            results.add(subAgentRunner.run(agent, history, userMessage, memories, sink));
+            try {
+                results.add(subAgentRunner.run(agent, history, userMessage, memories, sink));
+            } catch (RuntimeException e) {
+                // 串行多个子 Agent 时，前面几段正文早就流给前端了。这时候上抛异常会让
+                // SSE 连接断开：前半段回答停在界面半空，刷新后整段消失（库里只写了用户消息）。
+                // 一个字都没输出（第一个就失败）才上抛——那种情况由异常处理器转成错误响应体。
+                AgentResult done = merge(results);
+                if (done.reply() == null || done.reply().isBlank()) {
+                    throw e;
+                }
+                StreamFailure.report(sink, e);
+                log.warn("MainAgent#handle#第 {} 个子 Agent 失败，保留前 {} 段正文收尾 agent={} err={}",
+                        i + 1, results.size(), agent.name(), e.toString());
+                return done;
+            }
         }
         AgentResult merged = merge(results);
         log.info("MainAgent#handle#完成 agents={} 动作数={}", merged.agentName(), merged.events().size());
@@ -114,6 +128,8 @@ public class MainAgent implements ChatEngine {
             }
             reply.append(result.reply().strip());
         }
-        return new AgentResult(String.join("+", names), reply.toString(), events);
+        // 任一段是半截的，整体就是半截：合并后仍要能被上层识别出来
+        boolean partial = results.stream().anyMatch(AgentResult::partial);
+        return new AgentResult(String.join("+", names), reply.toString(), events, partial);
     }
 }

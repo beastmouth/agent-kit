@@ -8,6 +8,7 @@ import com.beastmouth.agentkit.model.ChatMessage;
 import com.beastmouth.agentkit.model.ModelReply;
 import com.beastmouth.agentkit.provider.ModelProvider;
 import com.beastmouth.agentkit.provider.ModelProviderRegistry;
+import com.beastmouth.agentkit.provider.ModelRouter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -57,7 +58,7 @@ public class IntentRouter {
             """;
 
     private final AgentRegistry agentRegistry;
-    private final ModelProviderRegistry providerRegistry;
+    private final ModelRouter modelRouter;
     private final RouterProperties routerProperties;
 
     /**
@@ -71,10 +72,11 @@ public class IntentRouter {
     /** 容器装配用：带上观测收口，路由调用的成本才进得了指标 */
     @org.springframework.beans.factory.annotation.Autowired
     public IntentRouter(AgentRegistry agentRegistry, ModelProviderRegistry providerRegistry,
+                        ModelRouter modelRouter,
                         ObjectProvider<RouterProperties> routerProperties,
                         com.beastmouth.agentkit.obs.ObservedModelCall observedModelCall) {
         this.agentRegistry = agentRegistry;
-        this.providerRegistry = providerRegistry;
+        this.modelRouter = modelRouter;
         this.routerProperties = routerProperties.getIfAvailable(RouterProperties::new);
         this.observedModelCall = observedModelCall;
     }
@@ -87,7 +89,8 @@ public class IntentRouter {
      */
     public IntentRouter(AgentRegistry agentRegistry, ModelProviderRegistry providerRegistry) {
         this.agentRegistry = agentRegistry;
-        this.providerRegistry = providerRegistry;
+        // 单测没有容器：给一个默认配置的路由器，行为等价于原来直接取当前渠道
+        this.modelRouter = new ModelRouter(providerRegistry, new com.beastmouth.agentkit.config.AiProperties());
         this.routerProperties = new RouterProperties();
         this.observedModelCall = null;
     }
@@ -102,7 +105,8 @@ public class IntentRouter {
      */
     public Route route(List<ChatMessage> history, String userMessage, String lastAgentName, ChatSink sink) {
         sink.status("routing", "正在理解你的问题");
-        ModelProvider provider = providerRegistry.current();
+        // 意图路由可以单独指定便宜渠道（agent-kit.intent-provider）；不配则跟随本次请求的路由
+        ModelProvider provider = modelRouter.forIntent();
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(ChatMessage.system(buildRoutingPrompt()));
         if (history != null) {

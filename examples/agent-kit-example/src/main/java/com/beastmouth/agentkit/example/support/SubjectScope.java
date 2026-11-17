@@ -55,12 +55,27 @@ public final class SubjectScope implements AutoCloseable {
      * 真实项目这里应该从 JWT 解析后的 SecurityContext 里取，不要信任客户端自报的头。</p>
      */
     public static RunContext.Subject fromHeader(String subjectId, String role, String channel) {
+        return fromHeader(subjectId, role, channel, null);
+    }
+
+    /**
+     * 带模型路由的版本：{@code modelRoute} 非空时落成 {@code model.route} 标签，
+     * 脚手架据此把本次请求切到 {@code agent-kit.routes.<modelRoute>} 的渠道。
+     *
+     * <p>真实项目里这个值应该来自「当前业务线 / 租户套餐 / 灰度分组」，而不是让客户端
+     * 自报——否则用户可以随手把请求指到最贵的模型上，账单由你付。</p>
+     */
+    public static RunContext.Subject fromHeader(String subjectId, String role, String channel, String modelRoute) {
         if (subjectId == null || subjectId.isBlank()) {
             return null;
         }
-        return RunContext.Subject.of(subjectId.trim(), Map.of(
-                LABEL_ROLE, role == null || role.isBlank() ? "owner" : role.trim(),
-                LABEL_CHANNEL, channel == null || channel.isBlank() ? "web" : channel.trim()));
+        Map<String, Object> labels = new java.util.LinkedHashMap<>();
+        labels.put(LABEL_ROLE, role == null || role.isBlank() ? "owner" : role.trim());
+        labels.put(LABEL_CHANNEL, channel == null || channel.isBlank() ? "web" : channel.trim());
+        if (modelRoute != null && !modelRoute.isBlank()) {
+            labels.put(com.beastmouth.agentkit.provider.ModelRouter.LABEL, modelRoute.trim());
+        }
+        return RunContext.Subject.of(subjectId.trim(), labels);
     }
 
     @Override

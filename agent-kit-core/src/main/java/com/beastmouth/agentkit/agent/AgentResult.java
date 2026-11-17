@@ -11,8 +11,16 @@ import java.util.List;
  * @param agentName 哪个子 Agent 处理的
  * @param reply     面向用户的结论
  * @param events    执行过的工具动作，按时间顺序
+ * @param partial   这一轮是否「说到一半断了」：{@code reply} 是真实产出过的部分，
+ *                  但不完整。上层据此决定落库标记、日志与回报口径——
+ *                  <b>不能因为「有内容」就当成成功</b>，那会让报表里的成功率虚高
  */
-public record AgentResult(String agentName, String reply, List<ToolEvent> events) {
+public record AgentResult(String agentName, String reply, List<ToolEvent> events, boolean partial) {
+
+    /** 兼容绝大多数调用点：正常完成的结果不用写第四个参数 */
+    public AgentResult(String agentName, String reply, List<ToolEvent> events) {
+        this(agentName, reply, events, false);
+    }
 
     /**
      * 一次工具调用。

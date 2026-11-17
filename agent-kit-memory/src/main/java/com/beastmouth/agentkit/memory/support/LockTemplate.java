@@ -44,16 +44,14 @@ public class LockTemplate {
     public <T> T tryExecute(String lockKey, long waitMillis, long leaseMillis,
                             Supplier<T> action, Supplier<T> fallback) {
         RLock lock = redissonClient.getLock(lockKey);
-        boolean acquired = false;
+        boolean acquired;
+        // 只有「加锁阶段」的异常才按没抢到处理。临界区里抛出的业务异常原样上抛——
+        // 早期版本把 action 也放在这个 try 里，结果模型调用失败被吞成「没抢到锁」，
+        // 用户看到的是「该会话正在处理上一条消息」，真正的原因（渠道挂了）连日志都找不着。
         try {
             acquired = waitMillis <= 0
                     ? lock.tryLock(0, leaseMillis, TimeUnit.MILLISECONDS)
                     : lock.tryLock(waitMillis, leaseMillis, TimeUnit.MILLISECONDS);
-            if (!acquired) {
-                log.debug("LockTemplate#tryExecute#未抢到锁 key={}", lockKey);
-                return fallback == null ? null : fallback.get();
-            }
-            return action.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("LockTemplate#tryExecute#等锁被中断 key={}", lockKey);
@@ -61,6 +59,13 @@ public class LockTemplate {
         } catch (RuntimeException e) {
             log.warn("LockTemplate#tryExecute#加锁异常，按未抢到处理 key={} err={}", lockKey, e.toString());
             return fallback == null ? null : fallback.get();
+        }
+        if (!acquired) {
+            log.debug("LockTemplate#tryExecute#未抢到锁 key={}", lockKey);
+            return fallback == null ? null : fallback.get();
+        }
+        try {
+            return action.get();
         } finally {
             release(lock, lockKey);
         }

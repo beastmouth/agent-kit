@@ -3,6 +3,7 @@ package com.beastmouth.agentkit.example.support;
 import com.beastmouth.agentkit.agent.AgentResult;
 import com.beastmouth.agentkit.agent.ChatEngine;
 import com.beastmouth.agentkit.agent.ChatSink;
+import com.beastmouth.agentkit.agent.StreamFailure;
 import com.beastmouth.agentkit.context.RunContext;
 import com.beastmouth.agentkit.eval.FeedbackService;
 import com.beastmouth.agentkit.memory.AgentMemoryService;
@@ -112,7 +113,24 @@ public class ConversationFacade {
                 // 和「点踩按会话倒查 runId」两个功能全部失效，而且不报错
                 RunScope.bindSession(session.getId());
                 try {
-                    AgentResult result = chatEngine.handle(history, message, lastAgent, memories, sink);
+                    AgentResult result;
+                    try {
+                        result = chatEngine.handle(history, message, lastAgent, memories, sink);
+                    } catch (RuntimeException e) {
+                        // 引擎层已经处理过「说到一半断了」；这里再兜一层是因为 ChatEngine 是开放接口，
+                        // 自定义实现不一定守约定。判据只有一个：正文有没有真的发出去过。
+                        // 没发过 → 原样上抛，让 Controller 回一个错误响应体（前端走错误处理）；
+                        // 发过 → 补一帧 error + 把已输出的部分落库，让前端能保留内容并提示重试。
+                        if (!sink.hasText()) {
+                            throw e;
+                        }
+                        StreamFailure.report(sink, e);
+                        log.warn("ConversationFacade#chat#引擎中途失败，保留已输出正文收尾 session={} 正文字数={} err={}",
+                                session.getId(), sink.text().length(), e.toString());
+                        // partial=true：库里存的是真实产出过的部分，但不是完整回答，
+                        // 上层（IM 推送 / 客服工单）据此可以加一句「这条没说完」
+                        result = new AgentResult("main", sink.text(), sink.toolEvents(), true);
+                    }
                     AgentMessage saved = sessionStore.append(session, "ASSISTANT", result.agentName(),
                             result.reply(), Json.toJson(result.events()));
                     log.info("ConversationFacade#chat#落库完成 session={} message={} agent={}",
@@ -123,8 +141,10 @@ public class ConversationFacade {
                 }
             });
             if (!ran) {
-                throw AgentKitException.of(ErrorCode.SESSION_READONLY,
-                        "该会话正在处理上一条消息，请稍后重试");
+                // 只有「真抢不到锁」才会走到这里。临界区里抛出的业务异常（比如模型挂了）
+                // 会原样上抛——锁不该替模型背锅，这两件事的提示差别很大
+                throw AgentKitException.of(ErrorCode.SESSION_BUSY,
+                        "上一条消息还在处理（同一会话同时只能跑一轮），等它结束再发");
             }
 
             AgentResult result = holder.get();
@@ -161,6 +181,10 @@ public class ConversationFacade {
     private static final class CollectingSink implements ChatSink {
 
         private final List<StreamEvent> events = new ArrayList<>();
+        /** 与流式事件同步攒的工具动作：中途失败时要用它落库，不能丢质量规则需要的 rows 之外的字段 */
+        private final List<AgentResult.ToolEvent> tools = new ArrayList<>();
+        /** 已经推给前端的正文。中途失败时它就是「这一轮真实产出」的唯一凭证 */
+        private final StringBuilder buffer = new StringBuilder();
 
         @Override
         public void status(String stage, String label) {
@@ -170,11 +194,38 @@ public class ConversationFacade {
         @Override
         public void tool(String name, boolean success, String summary) {
             events.add(new StreamEvent("tool", name, success, summary));
+            tools.add(new AgentResult.ToolEvent(name, success, summary));
         }
 
         @Override
         public void delta(String text) {
             events.add(new StreamEvent("delta", null, true, text));
+            buffer.append(text);
+        }
+
+        /**
+         * 错误帧。
+         *
+         * <p>真实项目在这里推 {@code event: error} + 一个 JSON 帧即可，字段就是这四个；
+         * 示例把 message 和 hint 拼成一句放进 {@code text}，好让 curl 一眼看懂
+         * （{@code success} 借位表示 retryable，只是示例的压缩表示，不要照抄这个映射）。</p>
+         */
+        @Override
+        public void error(String code, String message, boolean retryable, String hint) {
+            events.add(new StreamEvent("error", code, retryable,
+                    hint == null || hint.isBlank() ? message : message + "；" + hint));
+        }
+
+        boolean hasText() {
+            return !buffer.isEmpty();
+        }
+
+        String text() {
+            return buffer.toString();
+        }
+
+        List<AgentResult.ToolEvent> toolEvents() {
+            return List.copyOf(tools);
         }
 
         List<StreamEvent> drain() {

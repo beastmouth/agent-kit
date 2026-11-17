@@ -131,6 +131,20 @@ agent-kit:
 
 完整配置项见 `agent-kit-starter/src/main/resources/agent-kit-example.yml`。
 
+**要按业务分渠道**（财务走合规模型、闲聊走本地小模型）再加一段，代码一行不用改：
+
+```yaml
+agent-kit:
+  intent-provider: ollama        # 意图路由那一步固定用便宜渠道
+  routes:
+    finance:
+      provider: deepseek         # 不写 fallback-provider 就是不兜底
+```
+
+业务入口把 `model.route=finance` 放进 `RunContext.labels` 即可；子 Agent 也可以用
+`modelRoute()` 声明自己的默认档位，请求标签优先级更高。解析顺序与坑见
+[07-配置参考](docs/07-配置参考.md)。
+
 ### 3.4 写一个工具
 
 ```java
@@ -234,7 +248,7 @@ curl -s localhost:18080/demo/chat -H 'Content-Type: application/json' \
 
 | 扩展点 | 接口 | 用途 | 不实现时 |
 |---|---|---|---|
-| 模型渠道 | `ModelProvider` | 接新厂商；OpenAI 兼容的继承 `OpenAiCompatibleProvider` 只改 id | 内置 deepseek / siliconflow / ollama |
+| 模型渠道 | `ModelProvider` | 接新厂商；OpenAI 兼容的继承 `OpenAiCompatibleProvider` 只改 id。同一厂商开两档模型 = 两个子类两个 id | 内置 deepseek / siliconflow / ollama |
 | 工具 | `AgentTool` | 业务能力 | 无工具，纯对话 |
 | 子 Agent | `Agent` | 领域拆分（提示词 + 工具白名单） | 主 Agent 直接回话 |
 | 工具横切 | `ToolInterceptor` | 权限、审计、限流、脱敏（可多个，用 `@Order` 定顺序） | 全放行 |

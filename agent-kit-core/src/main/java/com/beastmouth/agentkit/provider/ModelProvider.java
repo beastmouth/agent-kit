@@ -32,4 +32,15 @@ public interface ModelProvider {
      * @return 聚合后的完整结果
      */
     ModelReply stream(List<ChatMessage> messages, Consumer<String> onDelta);
+
+    /**
+     * 该渠道当前是否应该走流式（{@code agent-kit.stream} 与 {@code endpoints.<id>.stream} 共同决定）。
+     *
+     * <p>由调用点据此决定调 {@link #stream} 还是 {@link #chat}，而不是让 {@link #stream} 内部
+     * 偷偷降级成同步——那样观测里的 {@code ai_llm_call.stream} 列会一直记 1，看报表的人
+     * 永远发现不了「这个渠道其实没在流」。</p>
+     */
+    default boolean streaming() {
+        return true;
+    }
 }

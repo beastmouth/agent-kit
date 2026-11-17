@@ -63,6 +63,31 @@ public class AiProperties {
     /** 按提供方 id 单独配置的端点，键名与 ModelProvider#id() 一致 */
     private Map<String, Endpoint> endpoints = new LinkedHashMap<>();
 
+    /**
+     * 按业务分流的渠道组合：路由键 → 渠道（可带独立兜底）。
+     *
+     * <p>上面的 {@link #provider} 是<b>默认渠道</b>，只在没命中任何路由时才用。命中规则见
+     * {@code ModelRouter}：请求标签（{@code RunContext.labels["model.route"]}）优先，
+     * 其次子 Agent 自己声明的 {@code Agent#modelRoute()}，都没有才回落默认。</p>
+     *
+     * <p><b>为什么路由内的兜底不继承全局 {@link #fallbackProvider}</b>：全局兜底通常配本地
+     * Ollama，而走独立路由的业务往往恰恰是最不能降级的（数据不出域、输出必须过合规模型）。
+     * 继承过来等于「A 渠道抖一下，业务被悄悄挪到 B 渠道」，成本、合规、数据流向三件事同时
+     * 失控，且只留一条 warn。所以路由内的兜底只能在 {@link Route#getFallbackProvider()} 里
+     * 显式写。</p>
+     */
+    private Map<String, Route> routes = new LinkedHashMap<>();
+
+    /**
+     * 意图路由（判断「这句话归哪个子 Agent」）那一步使用的渠道 id，留空表示跟随本次请求的路由。
+     *
+     * <p>这一步每轮必跑、提示词很短、只输出一个 JSON，用强模型属于纯浪费；
+     * 典型配法是给它一个本地或小模型渠道。刻意只接受<b>单个渠道 id</b>（不接受路由键）：
+     * 这一步失败后面还有三层兜底（关键词 → 追问延续 → 直答），不需要模型级主备，
+     * 少一层组合少一处能配错的地方。</p>
+     */
+    private String intentProvider = "";
+
     /** 采样温度，抽取参数的场景尽量低 */
     private double temperature = 0.1;
 
@@ -86,6 +111,19 @@ public class AiProperties {
      * 万一某个网关不认（返回 400），代码会自动去掉该字段重试一次，不影响对话。</p>
      */
     private boolean streamUsage = true;
+
+    /**
+     * 最终答复是否流式输出（默认开）。
+     *
+     * <p><b>不是所有渠道都能流</b>：企业内网反向代理常把 SSE 缓冲到收完才吐（用户看到的
+     * 效果是「转圈 20 秒、然后一次全出来」，比不流式更糟）；部分 one-api 网关、老版本 vLLM
+     * 对 {@code stream=true} 直接回 400。这类环境关掉即可，代价是首字延迟变成总耗时。</p>
+     *
+     * <p>按渠道单独覆盖见 {@link Endpoint#getStream()}：一条链路里云端流式、本地不流式
+     * 是常见组合。注意这里只管「给用户看的最终答复」——中间决策步本来就是同步 JSON，
+     * 意图路由与质量评判也不需要流式。</p>
+     */
+    private boolean stream = true;
 
     /** 单次决策的输出上限（token）。推理型模型的思维链也吃这个额度 */
     private int maxOutputTokens = 3000;
@@ -177,7 +215,18 @@ public class AiProperties {
         // 思考开关与强度没有全局默认值：不配就不发字段，避免不认这些字段的网关直接 400
         merged.setThinking(custom.getThinking());
         merged.setReasoningEffort(StringUtils.hasText(custom.getReasoningEffort()) ? custom.getReasoningEffort() : null);
+        merged.setStream(custom.getStream());
         return merged;
+    }
+
+    /**
+     * 某个渠道最终是否流式：渠道单独配置优先，否则跟随全局。
+     *
+     * <p>放在配置类上而不是各 provider 里，是为了两套引擎算同一件事时不会各写一份默认值。</p>
+     */
+    public boolean streamOf(String id) {
+        Boolean custom = endpoint(id).getStream();
+        return custom != null ? custom : stream;
     }
 
     /** 单个提供方的端点参数 */
@@ -211,5 +260,38 @@ public class AiProperties {
 
         /** 思考强度（对应请求体的 {@code reasoning_effort}），仅部分厂商支持，null 不发送 */
         private String reasoningEffort;
+
+        /**
+         * 该渠道是否流式，覆盖顶层 {@link AiProperties#stream}。
+         *
+         * <p>{@code null} = 跟随全局。存在的理由是渠道差异：同一个部署里，云端走 SSE 没问题，
+         * 本地 Ollama 对流式的首字延迟几乎没优势，而某些网关压根不认 {@code stream=true}。
+         * 一个渠道配错不该逼所有人关掉流式。</p>
+         */
+        private Boolean stream;
+    }
+
+    /**
+     * 一条业务路由：把「某个业务场景」固定到一个渠道组合上。
+     *
+     * <p>键名（{@code agent-kit.routes.<键>}）就是路由键，由业务侧通过
+     * {@code RunContext.labels} 的 {@code model.route} 传入，或由子 Agent 的
+     * {@code modelRoute()} 声明。键名大小写敏感，与标签值必须逐字一致。</p>
+     */
+    @Data
+    public static class Route {
+
+        /**
+         * 首选提供方 id，对应 {@code ModelProvider#id()}；留空表示沿用全局 {@link #provider}。
+         *
+         * <p>留空是给「只想改兜底、主渠道不变」这种配置留的口子，不是常规写法。</p>
+         */
+        private String provider;
+
+        /** 该路由单独的兜底提供方 id；<b>留空就是不兜底</b>，不会继承全局兜底 */
+        private String fallbackProvider;
+
+        /** 给人看的说明（进日志与健康检查），不参与任何逻辑 */
+        private String description;
     }
 }

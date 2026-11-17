@@ -50,6 +50,14 @@ public class JudgeService {
             严格按照给定的 JSON 输出，不要输出任何解释性文字或 Markdown 代码块。
             """;
 
+    /**
+     * 质量评判专用的路由键：配了 {@code agent-kit.routes.judge} 就走它，没配则回落默认渠道。
+     *
+     * <p>评判是「另一个模型的判断」，跟被评判的对话链路混用同一个渠道会产生同源偏差
+     * （同一个模型的毛病自己看不出来）。留一个固定键，让使用方可以把它指到不同厂商。</p>
+     */
+    public static final String JUDGE_ROUTE = "judge";
+
     private final EvalProperties properties;
     private final ModelProviderRegistry providerRegistry;
     private final EvalMapper mapper;
@@ -75,7 +83,7 @@ public class JudgeService {
             return;
         }
         try {
-            ModelProvider provider = providerRegistry.current();
+            ModelProvider provider = providerRegistry.route(JUDGE_ROUTE);
             String prompt = buildPrompt(row, tools);
             ModelReply reply = provider.chat(
                     List.of(ChatMessage.system(SYSTEM), ChatMessage.user(prompt)), true);

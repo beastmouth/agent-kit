@@ -5,6 +5,8 @@ import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ToolSchema;
+import com.beastmouth.agentkit.support.AgentKitException;
+import com.beastmouth.agentkit.support.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 
@@ -31,6 +33,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>流式场景下，如果第一个增量已经推给用户，再从备用重订阅会让用户看到两遍开头。
  * 所以用 {@code emitted} 判断：吐过字就如实失败，没吐过才降级。legacy 的
  * {@code FailoverModelProvider} 是同一个判断。</p>
+ *
+ * <p>除了降级，<b>上层对同一条流重订阅</b>也会重放。{@code primaryAttempt} 的 defer 里
+ * 因此也检查 {@code emitted}。但框架自带的模型级重试（{@code ModelUtils} 的
+ * {@code retryWhen}，默认 {@code maxAttempts=3}）发生在 ChatModel 内部，本类看不到，
+ * 拦不住——这是已知限制，见 {@code docs/08-引擎选型.md}。</p>
  *
  * <h3>瞬态传输错误先重试首选一次，再考虑降级</h3>
  * <p>踩过的坑：首选的 JDK 连接池复用到闲置十几小时的死连接，15ms 即
@@ -130,10 +137,33 @@ public class ResilientModel implements Model {
                 });
     }
 
-    /** 一次首选尝试：defer 保证重订阅时真的重新调用底层模型，而不是重放缓存 */
+    /**
+     * 一次首选尝试：defer 保证重订阅时真的重新调用底层模型，而不是重放缓存。
+     *
+     * <p><b>但重订阅前要先看有没有吐过字。</b>流式是「一条流一次性消费」，重订阅不是断点续传：
+     * 一旦有增量推给用户，重订阅就会把同样的开头再推一遍。</p>
+     *
+     * <p>{@code emitted} 是 {@link #stream} 方法内的局部变量——<b>同一次 stream() 返回的
+     * Flux 被重订阅时是同一个对象，而 ReAct 的下一轮会重新调用 stream() 拿到新的对象</b>，
+     * 所以这里能拦住「上层对同一条流重订阅」，又不会误伤「多步推理的正常多次调用」。</p>
+     *
+     * <p><b>拦不住框架自带的模型级重试</b>：{@code ModelUtils} 的 {@code retryWhen} 在
+     * ChatModel 内部按 {@code GenerateOptions.executionConfig} 生效（默认 {@code maxAttempts=3}），
+     * 本类只看到「一次 stream() 调用」，等它抛出时内部已经重放过三次。
+     * 实测 {@code ReActAgent.Builder#modelExecutionConfig} 改不动它。
+     * 所以：上游断流时用户会看到正文重复，这是已知限制，见 {@code docs/08-引擎选型.md}。</p>
+     */
     private Flux<ChatResponse> primaryAttempt(List<Msg> messages, List<ToolSchema> tools,
                                               GenerateOptions options, AtomicBoolean emitted) {
-        return Flux.defer(() -> withTimeout(primary.stream(messages, tools, options)))
+        return Flux.defer(() -> {
+                    if (emitted.get()) {
+                        log.warn("ResilientModel#stream#已经输出过正文，拒绝重放（框架级重试） primary={}",
+                                primaryId);
+                        return Flux.<ChatResponse>error(AgentKitException.of(
+                                ErrorCode.MODEL_UNAVAILABLE, "流式输出已开始，不再重试"));
+                    }
+                    return withTimeout(primary.stream(messages, tools, options));
+                })
                 .doOnNext(response -> emitted.set(true));
     }
 

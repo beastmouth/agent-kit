@@ -111,7 +111,26 @@ curl -s 'localhost:18080/demo/sessions?subjectId=u-99'
 
 ---
 
-## 三、六个最容易踩的坑
+## 二点五、换个渠道试试（可选）
+
+`/demo/chat` 认一个可选的 `route` 字段，对应 yml 里的 `agent-kit.routes.<route>`。
+**这个值在示例里是从请求体读的，只为 curl 方便**；真实项目必须从业务线 / 租户套餐 /
+灰度分组推导，否则用户能把请求随手指到最贵的模型上。
+
+```bash
+# 需要 DEEPSEEK_API_KEY，走上面配的 routes.cloud（deepseek，兜底 ollama）
+curl -s localhost:18080/demo/chat -H 'Content-Type: application/json' -d '{
+  "subjectId": "u-42", "message": "帮我记一下周五交房租", "route": "cloud"
+}'
+```
+
+确认真的换了渠道，看两处：`ai_llm_call.provider` 应该是 `deepseek`，
+`/demo/catalog` 的 `modelRoutes` 里应该有 `cloud`。
+路由键写错不会报错，只会回落默认渠道并在日志里 warn 一次 —— 这是刻意设计，但排查时要知道。
+
+---
+
+## 三、七个最容易踩的坑
 
 **1. 忘了 `RunContext.clear()`**
 线程池复用后，A 的 subject 留在线程上，B 的请求直接冒用 A 的身份写数据，不报错。
@@ -135,7 +154,13 @@ curl -s 'localhost:18080/demo/sessions?subjectId=u-99'
 两个功能静默失效——`/demo/feedback` 永远返回 `{"accepted": false}`。
 这个坑是 2026-11-17 实际跑示例时踩到的：接口不报错，只是反馈永远存不进去。
 
-**6. 和别的系统共用 Milvus 时没改 collection 名**
+**6. 流式中途失败还在抛异常**
+`/demo/chat` 的响应里有 `events` 数组，事件类型除了 `status` / `tool` / `delta` 之外还有
+`error`。它对应 `ChatSink#error`，只在「正文已经发出去过、但后面失败了」时出现：
+此时再抛异常只会断连，前端看到的是「网络错误」，而半句话卡在界面上、刷新后消失。
+门面里那层 `catch` 是给你抄的——**真实项目接了 SSE，这条比这里重要得多**。
+
+**7. 和别的系统共用 Milvus 时没改 collection 名**
 `agent-kit.memory.collection` 默认 `ai_agent_memory`。同一台 Milvus 上如果已有另一套
 agent 用着同名 collection，两边的记忆会互相串——而且 `rebuildFromMysql()` 会把**你自己的表**
 灌进共用的集合。接生产前先改成 `<你的系统>_memory`。

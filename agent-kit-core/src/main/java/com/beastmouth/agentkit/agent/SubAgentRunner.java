@@ -19,7 +19,7 @@ import com.beastmouth.agentkit.obs.ObservedModelCall;
 import com.beastmouth.agentkit.obs.RunScope;
 import com.beastmouth.agentkit.obs.ToolCallRecorder;
 import com.beastmouth.agentkit.provider.ModelProvider;
-import com.beastmouth.agentkit.provider.ModelProviderRegistry;
+import com.beastmouth.agentkit.provider.ModelRouter;
 import io.opentelemetry.api.trace.Span;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -68,7 +68,8 @@ public class SubAgentRunner {
     private static final String TOOL_TRUTH = PromptFragments.TOOL_TRUTH;
 
     private final ToolRegistry toolRegistry;
-    private final ModelProviderRegistry providerRegistry;
+    /** 路由：请求标签 > Agent 声明 > 默认渠道，见 {@link ModelRouter} */
+    private final ModelRouter modelRouter;
     private final AiProperties properties;
     /** 可选：本轮钩子，没有实现时为空列表（Spring 对 List 注入空集合） */
     private final List<TurnHook> turnHooks;
@@ -116,6 +117,14 @@ public class SubAgentRunner {
         String errorCode = null;
         try {
             AgentResult result = runInternal(agent, history, userMessage, memories, sink);
+            if (result.partial()) {
+                // 说到一半断了：这一轮不能算成功。异常在 conclude 里被转成了错误帧 + 部分正文，
+                // 如果这里不把状态改回 FAIL，报表会把它当正常回答——成功率虚高，而且谁也不会发现
+                status = "FAIL";
+                errorCode = "PARTIAL_REPLY";
+                log.warn("SubAgentRunner#run#部分产出后失败 agent={} 正文字数={} 动作数={}",
+                        agent.name(), result.reply().length(), result.events().size());
+            }
             // 回复原文交给 scope：P3 的"幻觉成功"规则要拿它和工具结果对账
             scope.setOutput(result.reply());
             return result;
@@ -140,7 +149,9 @@ public class SubAgentRunner {
 
     private AgentResult runInternal(Agent agent, List<ChatMessage> history, String userMessage,
                                     List<String> memories, ChatSink sink) {
-        ModelProvider provider = providerRegistry.current();
+        // 渠道按路由解析：同一个会话里不同子 Agent 可以用不同渠道，
+        // 请求级标签（RunContext.labels[model.route]）还能再盖一层
+        ModelProvider provider = modelRouter.forAgent(agent);
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(ChatMessage.system(buildSystemPrompt(agent, memories)));
         messages.addAll(history);
@@ -273,17 +284,40 @@ public class SubAgentRunner {
         messages.add(ChatMessage.user("请用自然的话向用户说明刚才的处理结果，多个结果按顺序说清楚，"
                 + "需要列明细时用 Markdown 列表。不要输出 JSON，不要提工具名。"));
         StringBuilder buffer = new StringBuilder();
+        if (!provider.streaming()) {
+            // 渠道关了流式：一次拿全，再一次性推给前端。sink 语义不变，只是没有中间帧
+            try {
+                ModelReply reply = observed.chat(provider, messages, false, "SUMMARIZE");
+                String text = reply.content() == null ? "" : reply.content().trim();
+                if (!text.isEmpty()) {
+                    sink.delta(text);
+                }
+                return new AgentResult(agent.name(), text.isEmpty() ? "处理完成" : text, events);
+            } catch (RuntimeException e) {
+                log.warn("SubAgentRunner#conclude#总结失败 agent={} 流式=off err={}", agent.name(), e.toString());
+                String joined = events.stream().map(ToolEvent::summary).reduce((a, b) -> a + "\n\n" + b).orElse("");
+                sink.delta(joined);
+                return new AgentResult(agent.name(), joined, events);
+            }
+        }
         try {
             observed.stream(provider, messages, chunk -> {
                 buffer.append(chunk);
                 sink.delta(chunk);
             }, "SUMMARIZE");
         } catch (RuntimeException e) {
-            log.warn("SubAgentRunner#conclude#总结失败 agent={} err={}", agent.name(), e.toString());
-            String joined = events.stream().map(ToolEvent::summary).reduce((a, b) -> a + "\n\n" + b).orElse("");
-            if (buffer.isEmpty()) {
-                sink.delta(joined);
+            log.warn("SubAgentRunner#conclude#总结失败 agent={} 已输出字数={} err={}",
+                    agent.name(), buffer.length(), e.toString());
+            if (!buffer.isEmpty()) {
+                // 模型说到一半断了：已经流出去的字不能丢。返回 joined（工具摘要）的话，
+                // 用户屏幕上是一段话、库里存的是另一段，刷新一次就对不上。
+                // 推错误帧让前端知道「后面没了」，正文保留已产出的部分。
+                return StreamFailure.partial(agent.name(), buffer.toString(), events, sink, e);
             }
+            String joined = events.stream().map(ToolEvent::summary).reduce((a, b) -> a + "\n\n" + b).orElse("");
+            sink.delta(joined);
+            // 这里刻意不推错误帧：摘要本身就是一句完整的人话，用户已经拿到了可用结果，
+            // 再弹一条「服务异常」只会制造噪音。持续失败在 ai_run（FAIL）与 warn 日志里看得到。
             return new AgentResult(agent.name(), joined, events);
         }
         String text = buffer.toString().trim();

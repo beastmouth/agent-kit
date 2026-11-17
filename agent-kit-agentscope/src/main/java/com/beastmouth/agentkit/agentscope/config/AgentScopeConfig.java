@@ -6,6 +6,7 @@ import com.beastmouth.agentkit.agent.IntentRouter;
 import com.beastmouth.agentkit.agentscope.engine.AgentScopeEngine;
 import com.beastmouth.agentkit.agentscope.obs.RuntimeObs;
 import com.beastmouth.agentkit.config.AiProperties;
+import com.beastmouth.agentkit.provider.ModelRouter;
 import com.beastmouth.agentkit.tool.ToolInterceptor;
 import com.beastmouth.agentkit.tool.ToolRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -46,10 +47,11 @@ public class AgentScopeConfig {
                                            ToolRegistry toolRegistry,
                                            AgentRegistry agentRegistry,
                                            IntentRouter intentRouter,
+                                           ModelRouter modelRouter,
                                            RuntimeObs runtimeObs,
                                            AgentScopeProperties scopeProperties,
                                            List<ToolInterceptor> toolInterceptors) {
         return new AgentScopeEngine(aiProperties, toolRegistry, agentRegistry, intentRouter,
-                runtimeObs, scopeProperties, toolInterceptors);
+                modelRouter, runtimeObs, scopeProperties, toolInterceptors);
     }
 }

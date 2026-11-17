@@ -67,6 +67,17 @@ public class FailoverModelProvider implements ModelProvider {
         return primary.id();
     }
 
+    /**
+     * 流式与否跟着首选走，降级不改变这个行为。
+     *
+     * <p>若按当前实际生效的渠道取，就会出现「同一条链路前半段流式、降级后整段蹦出来」——
+     * 前端是按 SSE 渲染的，突然收一个完整大块，效果比一开始就不流更怪。</p>
+     */
+    @Override
+    public boolean streaming() {
+        return primary.streaming();
+    }
+
     @Override
     public ModelReply chat(List<ChatMessage> messages, boolean jsonMode) {
         if (blocked()) {

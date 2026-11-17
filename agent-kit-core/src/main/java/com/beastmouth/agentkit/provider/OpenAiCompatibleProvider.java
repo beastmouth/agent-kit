@@ -61,6 +61,11 @@ public abstract class OpenAiCompatibleProvider implements ModelProvider {
         return id;
     }
 
+    @Override
+    public boolean streaming() {
+        return properties.streamOf(id);
+    }
+
     /**
      * 空响应重试时的补位提醒。
      *

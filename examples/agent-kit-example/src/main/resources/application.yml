@@ -74,6 +74,24 @@ agent-kit:
       base-url: https://api.deepseek.com
       model: deepseek-chat
       api-key: ${DEEPSEEK_API_KEY:}
+  # 最终答复是否流式。关掉后前端「转圈 → 一次全出来」。
+  # 什么时候该关：企业内网反向代理把 SSE 缓冲到收完才吐、或网关不认 stream=true 直接 400。
+  # 某个渠道单独关：endpoints.<id>.stream: false（见下面的注释）。
+  stream: true
+
+  # 意图路由（每轮判断「这句话归谁」）可以单独走便宜渠道，留空 = 跟随本次请求的路由。
+  # 这一步只输出一个 JSON、提示词极短，用强模型纯属浪费。
+  intent-provider: ""
+
+  # 按业务分流：键名 = RunContext.labels["model.route"] 的值，或 Agent#modelRoute() 的返回值。
+  # 业务侧一句 labels.put("model.route","cloud") 就能换个渠道，不用改配置重启。
+  # 注意：route 内的 fallback 不继承上面的全局 fallback，不写就是不兜底（理由见文档）。
+  routes:
+    cloud:
+      provider: deepseek
+      fallback-provider: ollama
+      description: 演示用云端渠道，需要 DEEPSEEK_API_KEY
+
   temperature: 0.1
   timeout-seconds: 120
   # 单轮最多几步「决策 → 调工具」，示例里有 1~2 步就够

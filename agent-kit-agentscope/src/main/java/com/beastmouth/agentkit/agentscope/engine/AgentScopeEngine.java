@@ -6,11 +6,14 @@ import com.beastmouth.agentkit.agent.AgentRegistry;
 import com.beastmouth.agentkit.agent.AgentResult;
 import com.beastmouth.agentkit.agent.ChatEngine;
 import com.beastmouth.agentkit.agent.ChatSink;
+import com.beastmouth.agentkit.agent.StreamFailure;
 import com.beastmouth.agentkit.agent.IntentRouter;
 import com.beastmouth.agentkit.agent.PromptFragments;
 import com.beastmouth.agentkit.agentscope.bridge.ToolBridge;
 import com.beastmouth.agentkit.agentscope.config.AgentScopeProperties;
 import com.beastmouth.agentkit.agentscope.model.ResilientModel;
+import com.beastmouth.agentkit.provider.ModelProviderRegistry.RoutePlan;
+import com.beastmouth.agentkit.provider.ModelRouter;
 import com.beastmouth.agentkit.agentscope.obs.ObservingHook;
 import com.beastmouth.agentkit.agentscope.obs.RuntimeObs;
 import com.beastmouth.agentkit.config.AiProperties;
@@ -85,6 +88,14 @@ public class AgentScopeEngine implements ChatEngine {
             "已完成|已处理|已提交|已保存|已创建|已更新|已删除|操作成功";
 
     private final AiProperties aiProperties;
+    /**
+     * 渠道路由（可空：单测/PoC 装配不传，此时退回全局默认渠道）。
+     *
+     * <p>与 legacy 引擎共用同一个 {@link ModelRouter}，解析顺序（请求标签 > Agent 声明 > 默认）
+     * 只写一份——两套引擎各写一份的话，同一个配置在 legacy 生效、切到 AgentScope 失效，
+     * 是最难查的一类问题。</p>
+     */
+    private final ModelRouter modelRouter;
     private final ToolRegistry toolRegistry;
     private final AgentRegistry agentRegistry;
     private final IntentRouter intentRouter;
@@ -138,9 +149,11 @@ public class AgentScopeEngine implements ChatEngine {
 
     public AgentScopeEngine(AiProperties aiProperties, ToolRegistry toolRegistry,
                             AgentRegistry agentRegistry, IntentRouter intentRouter,
+                            ModelRouter modelRouter,
                             RuntimeObs obs, AgentScopeProperties scopeProperties,
                             List<ToolInterceptor> toolInterceptors) {
         this.aiProperties = aiProperties;
+        this.modelRouter = modelRouter;
         this.toolRegistry = toolRegistry;
         this.agentRegistry = agentRegistry;
         this.intentRouter = intentRouter;
@@ -153,7 +166,7 @@ public class AgentScopeEngine implements ChatEngine {
     /** 无观测装配时使用（单测、PoC）：不建 run、不落库、不打点 */
     public AgentScopeEngine(AiProperties aiProperties, ToolRegistry toolRegistry,
                             AgentRegistry agentRegistry, IntentRouter intentRouter) {
-        this(aiProperties, toolRegistry, agentRegistry, intentRouter,
+        this(aiProperties, toolRegistry, agentRegistry, intentRouter, null,
                 RuntimeObs.DISABLED, new AgentScopeProperties(), List.of());
     }
 
@@ -198,7 +211,20 @@ public class AgentScopeEngine implements ChatEngine {
             sink.status("delegate", agents.size() > 1
                     ? "正在处理（%d/%d）".formatted(i + 1, agents.size())
                     : "正在处理");
-            results.add(runOne(agents.get(i), history, userMessage, memories, sink));
+            try {
+                results.add(runOne(agents.get(i), history, userMessage, memories, sink));
+            } catch (RuntimeException e) {
+                // 与 legacy 引擎同一条规矩：前面几段正文已经发出去了，就不能再让整条连接失败。
+                // 一个字都没输出才上抛（由 Controller 转成错误响应体）
+                AgentResult done = merge(results);
+                if (done.reply() == null || done.reply().isBlank()) {
+                    throw e;
+                }
+                StreamFailure.report(sink, e);
+                log.warn("AgentScopeEngine#handle#第 {} 个子 Agent 失败，保留前 {} 段正文收尾 err={}",
+                        i + 1, results.size(), e.toString());
+                return done;
+            }
         }
         return merge(results);
     }
@@ -216,14 +242,16 @@ public class AgentScopeEngine implements ChatEngine {
         ChatSink out = obs.ttftAware(sink, scope);
         String status = "SUCCESS";
         String errorCode = null;
+        // 这两个必须声明在 try 外面：catch 要靠 streamed 判断「有没有已经把正文吐出去」，
+        // 已经吐过就只能推错误帧收尾，不能再抛（响应头早发出去了）。
+        // 声明在 try 里的话 catch 拿不到，就只能一律上抛——正是要修的那个问题。
+        List<AgentResult.ToolEvent> events = new CopyOnWriteArrayList<>();
+        StringBuilder streamed = new StringBuilder();
         try {
             ReActAgent reactAgent = buildAgent(target, scope);
 
             RuntimeContext ctx = buildRuntimeContext(memories, scope);
             List<Msg> messages = toMessages(history, userMessage);
-
-            List<AgentResult.ToolEvent> events = new CopyOnWriteArrayList<>();
-            StringBuilder streamed = new StringBuilder();
 
             Event last;
             try {
@@ -261,12 +289,38 @@ public class AgentScopeEngine implements ChatEngine {
                     target.name(), events.size(), reply.length());
             return new AgentResult(target.name(), reply, List.copyOf(events));
         } catch (RuntimeException e) {
+            // 部分成功也是失败：状态记 FAIL、错误码照记，报表口径不变。
+            // 区别只在返回路径——已经流出去的正文不能丢，也不能让连接悬着
             status = "FAIL";
             errorCode = e.getClass().getSimpleName();
-            throw e;
+            if (!streamed.isEmpty()) {
+                // 一个字都已经发出去了：推一帧 error + 正常结束，保留已产出的正文。
+                // 用 out 而不是 sink：真项目里 out 可能还带着首字打点等装饰，
+                // 错误帧跳过装饰层会让「最后一帧」和「前面的帧」走不同的通道
+                return StreamFailure.partial(target.name(), streamed.toString(), events, out, e);
+            }
+            throw normalizeFailure(e);
         } finally {
             obs.finish(scope, status, errorCode);
         }
+    }
+
+    /**
+     * 把框架/传输层的异常归一化成 {@code MODEL_UNAVAILABLE}。
+     *
+     * <p>legacy 引擎的 provider 自己抛 {@link AgentKitException}，消息是中文、带错误码；
+     * AgentScope 的异常来自框架与 OkHttp，直接上抛会让用户看到
+     * {@code WebClientRequestException: Connection refused} 这种东西——
+     * 既看不懂，也不该出现在前端。所以在这里做一次翻译，原始异常留在 cause 里供排查。</p>
+     *
+     * <p>只翻译「确定是传输/超时」的那类；其余原样上抛，免得把空指针包装成「模型挂了」，
+     * 让人往错的方向查。</p>
+     */
+    private static RuntimeException normalizeFailure(RuntimeException e) {
+        if (e instanceof AgentKitException || !StreamFailure.isTransportFailure(e)) {
+            return e;
+        }
+        return AgentKitException.of(ErrorCode.MODEL_UNAVAILABLE, ErrorCode.MODEL_UNAVAILABLE.message(), e);
     }
 
     /**
@@ -376,7 +430,9 @@ public class AgentScopeEngine implements ChatEngine {
             }
             reply.append(result.reply().strip());
         }
-        return new AgentResult(String.join("+", names), reply.toString(), events);
+        // 任一段是半截的，整体就是半截：合并后仍要能被上层识别出来
+        boolean partial = results.stream().anyMatch(AgentResult::partial);
+        return new AgentResult(String.join("+", names), reply.toString(), events, partial);
     }
 
     /**
@@ -592,6 +648,10 @@ public class AgentScopeEngine implements ChatEngine {
     private ReActAgent buildAgent(Agent target, RunScope scope) {
         Toolkit toolkit = toolkitCache.computeIfAbsent(target.name(), name -> buildToolkit(target));
 
+        // 渠道按路由解析，与 legacy 共用同一份规则：
+        // 请求标签（RunContext.labels[model.route]）> Agent 自己声明 > 全局默认
+        RoutePlan plan = planFor(target);
+
         ReActAgent.Builder builder = ReActAgent.builder()
                 .name(target.name())
                 .description(target.description())
@@ -599,14 +659,16 @@ public class AgentScopeEngine implements ChatEngine {
                 // 它是产品口径，与 legacy 共用同一份常量；放在易变区（日期/记忆之后）
                 // 会让它成为「每轮都要求模型重新读一遍」的尾部内容，成本更高还没必要
                 .sysPrompt(target.systemPrompt() + PromptFragments.TOOL_TRUTH + PromptFragments.REPLY_STYLE)
-                .model(resilientModel())
+                .model(resilientModel(plan))
                 .toolkit(toolkit)
                 .maxIters(aiProperties.getMaxSteps())
                 .middleware(new PromptTailMiddleware(Boolean.FALSE.equals(aiProperties.getThink())));
 
         LlmCallRecorder recorder = obs.recorder();
         if (recorder != null && scope != null && !scope.noop()) {
-            builder.hook(new ObservingHook(scope, aiProperties.getProvider(), recorder,
+            // 记实际渠道而不是全局默认：按业务分流之后，trace 与指标必须能按渠道分组，
+            // 否则所有调用都被标成同一个 provider，「这句话是哪个模型答的」永远查不出来
+            builder.hook(new ObservingHook(scope, plan.primary(), recorder,
                     toolkitChars.getOrDefault(target.name(), 0)));
         }
 
@@ -622,27 +684,52 @@ public class AgentScopeEngine implements ChatEngine {
      *
      * <p>只有首选才包备用：备用自己再包一层首选会绕成环，而且备用没有「备用的备用」。</p>
      */
-    private Model resilientModel() {
-        return resilientCache.computeIfAbsent(aiProperties.getProvider(), this::buildResilient);
+    /**
+     * 本条路由对应的模型组合解析结果。
+     *
+     * <p>没有注入路由器（单测 / PoC）时退回全局默认渠道，行为与改造前一致。</p>
+     */
+    private RoutePlan planFor(Agent target) {
+        if (modelRouter != null) {
+            return modelRouter.planFor(target);
+        }
+        return new RoutePlan(null, aiProperties.getProvider(), aiProperties.getFallbackProvider());
     }
 
-    private Model buildResilient(String primaryId) {
+    /**
+     * 带熔断的主模型，按「渠道组合」缓存。
+     *
+     * <p>不用框架的 {@code fallbackModel}：它只在「这次失败」时换备用，不记冷却，
+     * 过载窗口里每个请求都要先撞一次首选白等十几秒。主备与冷却的语义由
+     * {@link ResilientModel} 承担，与 legacy 的 {@code FailoverModelProvider} 对齐。</p>
+     *
+     * <p><b>缓存键是组合而不是路由键</b>：熔断状态挂在实例上，必须跨请求共享；而两条路由
+     * 配成同一个组合时它们打的是同一个上游，共用一个熔断器才是对的。</p>
+     *
+     * <p>只有首选才包备用：备用自己再包一层首选会绕成环，而且备用没有「备用的备用」。</p>
+     */
+    private Model resilientModel(RoutePlan plan) {
+        return resilientCache.computeIfAbsent(plan.cacheKey(), ignored -> buildResilient(plan));
+    }
+
+    private Model buildResilient(RoutePlan plan) {
+        String primaryId = plan.primary();
         Model primary = modelOf(primaryId);
         // 单次调用的无响应超时：与 legacy 的 HttpRequest.timeout 同值
         Duration timeout = aiProperties.getTimeoutSeconds() > 0
                 ? Duration.ofSeconds(aiProperties.getTimeoutSeconds())
                 : null;
-        String fallbackId = aiProperties.getFallbackProvider();
-        if (!StringUtils.hasText(fallbackId) || fallbackId.equals(primaryId)) {
+        if (!plan.hasFallback()) {
             return ResilientModel.of(primary, primaryId, timeout);
         }
+        String fallbackId = plan.fallback();
         try {
             Model fallback = modelOf(fallbackId);
             return new ResilientModel(primary, primaryId, fallback, fallbackId,
                     aiProperties.getFailoverCooldownSeconds() * 1000L, timeout);
         } catch (RuntimeException e) {
-            log.warn("AgentScopeEngine#resilientModel#兜底模型不可用，只用首选 provider={} err={}",
-                    fallbackId, e.toString());
+            log.warn("AgentScopeEngine#resilientModel#兜底模型不可用，只用首选 route={} provider={} err={}",
+                    plan.key(), fallbackId, e.toString());
             return ResilientModel.of(primary, primaryId, timeout);
         }
     }
@@ -712,7 +799,9 @@ public class AgentScopeEngine implements ChatEngine {
             return OllamaChatModel.builder()
                     .baseUrl(endpoint.getBaseUrl())
                     .modelName(endpoint.getModel())
-                    .stream(true)
+                    // 流式按渠道配置（agent-kit.stream / endpoints.<id>.stream）：
+                    // 内网代理缓冲 SSE 或网关不认 stream=true 时关掉，界面体验反而更好
+                    .stream(aiProperties.streamOf(providerId))
                     .httpTransport(aiTransport())
                     .build();
         }
@@ -720,7 +809,7 @@ public class AgentScopeEngine implements ChatEngine {
                 .apiKey(endpoint.getApiKey())
                 .baseUrl(endpoint.getBaseUrl())
                 .modelName(endpoint.getModel())
-                .stream(true)
+                .stream(aiProperties.streamOf(providerId))
                 .generateOptions(generateOptions(endpoint))
                 .httpTransport(aiTransport())
                 .build();
