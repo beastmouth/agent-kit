@@ -22,7 +22,6 @@
         <module>agent-kit-core</module>
         <module>agent-kit-memory</module>
         <module>agent-kit-starter</module>
-        <module>examples/agent-kit-example</module>
     </modules>
 
     <properties>
@@ -89,4 +88,23 @@
             </plugins>
         </pluginManagement>
     </build>
+
+    <profiles>
+        <!--
+          示例模块默认不参与构建：它是给接入方看的参考实现，不是脚手架的发布物。
+
+          · 默认 `mvn clean package` 只构建 core / memory / starter 三个模块
+          · `mvn -Pexamples clean package` 才把 examples/agent-kit-example 一起编进来
+          · 示例的 pom 里已设 maven.install.skip / maven.deploy.skip，永远不会被发布
+
+          这样做的原因：示例依赖 web 容器与 MySQL 驱动，把它的依赖和构建时间带进脚手架
+          的默认路径没有意义；同时它又必须能一键跑起来验证，所以不能干脆挪出仓库。
+        -->
+        <profile>
+            <id>examples</id>
+            <modules>
+                <module>examples/agent-kit-example</module>
+            </modules>
+        </profile>
+    </profiles>
 </project>

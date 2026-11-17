@@ -6,6 +6,9 @@
 它的目标很具体：换一个业务系统（电商客服、工单助手、内部知识问答、个人记账…）时，
 只需要写「子 Agent 的提示词」和「工具实现」，其余全部复用。
 
+📖 **完整文档在 [`docs/`](docs/README.md)**：架构设计、快速开始、会话与记忆、可观测性、质量评测、接入清单、配置参考。
+🛠 **可跑示例在 [`examples/`](examples/README.md)**：假业务（待办 + 天气），四层适配层的模板。
+
 ---
 
 ## 1. 边界：故意不做什么
@@ -28,14 +31,22 @@
 
 ```
 agent-kit
+├── docs                # 核心文档：架构、快速开始、可观测、评测、接入清单、配置
 ├── agent-kit-core      # 契约与运行时：模型、工具、Agent、观测、评测（无 DB 依赖也能编译）
 ├── agent-kit-memory    # 可选：长期记忆（Milvus 向量）与会话上下文（Redis 缓存 + 分布式锁）
 ├── agent-kit-starter   # Spring Boot Starter：引入即装配 + 建表脚本 + 配置示例
 └── examples
-    └── agent-kit-example  # 可跑的假业务：待办 + 天气，演示 Agent/Tool/RunContext/会话与记忆四层适配
+    └── agent-kit-example  # 参考实现：待办 + 天气，演示 Agent/Tool/RunContext/会话与记忆
 ```
 
-> `examples/` **不是框架的一部分**，可以整目录删掉不影响构建；里面的代码是给业务侧抄的模板。
+`examples/` **不在默认构建里**：它是给接入方看的参考，不是脚手架的发布物。
+
+```bash
+mvn clean package              # 只构建 core / memory / starter
+mvn -Pexamples clean package   # 连示例一起构建
+```
+
+示例 pom 里已设 `maven.install.skip` / `maven.deploy.skip`，永远不会被发布。
 
 包结构（`com.beastmouth.agentkit`）：
 
@@ -176,9 +187,10 @@ try {
 Agent、Tool、RunContext、会话与记忆四层全串起来了，包含可直接 curl 的 HTTP 入口。
 
 ```bash
+mvn -Pexamples clean install -DskipTests
 mysql -uroot -p agent_kit_demo < agent-kit-starter/src/main/resources/db/agent-kit-schema.sql
 export MYSQL_PASSWORD=...  REDIS_PASSWORD=...
-mvn -pl examples/agent-kit-example -am spring-boot:run
+java -jar examples/agent-kit-example/target/agent-kit-example-0.1.0.jar
 
 curl -s localhost:18080/demo/catalog                 # 看装了几个 Agent / 工具
 curl -s localhost:18080/demo/chat -H 'Content-Type: application/json' \

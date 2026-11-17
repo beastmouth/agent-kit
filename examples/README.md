@@ -4,7 +4,15 @@
 待办存在内存里，没有任何外部 API —— 目的是把「接入脚手架要写什么」压到最小，
 剩下的都是模板。
 
-它不是框架的一部分。真实项目里把这一层照抄一遍、换成自己的业务即可。
+**它不在脚手架里，也不参与默认构建**：
+
+```bash
+mvn clean package              # 只构建 core / memory / starter
+mvn -Pexamples clean package   # 连这个示例一起构建
+```
+
+示例 pom 里设了 `maven.install.skip` / `maven.deploy.skip`，永远不会被发布到仓库。
+真实项目里把这一层照抄一遍、换成自己的业务即可。
 
 ---
 
@@ -40,8 +48,9 @@ mysql -uroot -p agent_kit_demo < ../agent-kit-starter/src/main/resources/db/agen
 export MYSQL_PASSWORD='...'
 export REDIS_PASSWORD='...'
 
-# 3. 起服务（默认走本机 Ollama；换 DeepSeek 改 application.yml 的 provider）
-mvn -pl examples/agent-kit-example -am spring-boot:run
+# 3. 构建并起服务（默认走本机 Ollama；换 DeepSeek 改 application.yml 的 provider）
+mvn -Pexamples clean install -DskipTests
+java -jar examples/agent-kit-example/target/agent-kit-example-0.1.0.jar
 ```
 
 ### 1）先自检装配
