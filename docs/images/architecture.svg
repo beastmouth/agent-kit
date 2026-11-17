@@ -1,0 +1,197 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="1010" viewBox="0 0 1480 1010" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1480" height="1010" fill="#ffffff"/>
+
+  <!-- 标题 -->
+  <text x="48" y="46" font-size="26" font-weight="700" fill="#0f1b2d">agent-kit 架构总览</text>
+  <text x="48" y="72" font-size="13" fill="#64748b">纯 Agent 脚手架：业务只写「子 Agent 提示词」与「工具实现」，引擎、观测、评测、记忆与会话全部复用</text>
+
+  <!-- 图例 -->
+  <rect x="1070" y="34" width="12" height="12" rx="3" fill="#2f6feb"/>
+  <text x="1088" y="45" font-size="12" fill="#475569">自研引擎</text>
+  <rect x="1160" y="34" width="12" height="12" rx="3" fill="#7a4ddb"/>
+  <text x="1178" y="45" font-size="12" fill="#475569">AgentScope</text>
+  <rect x="1268" y="34" width="12" height="12" rx="3" fill="#12a594"/>
+  <text x="1286" y="45" font-size="12" fill="#475569">记忆与会话</text>
+  <rect x="1364" y="34" width="12" height="12" rx="3" fill="#d9822b"/>
+  <text x="1382" y="45" font-size="12" fill="#475569">观测</text>
+
+  <!-- ① 业务接入层 -->
+  <rect x="48" y="96" width="982" height="104" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="64" y="122" font-size="13" font-weight="700" fill="#64748b">① 业务接入层（使用方自己写，不在脚手架里）</text>
+
+  <rect x="64" y="138" width="290" height="48" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="209" y="158" font-size="14" font-weight="600" fill="#1f2937" text-anchor="middle">HTTP Controller</text>
+  <text x="209" y="176" font-size="11" fill="#7c8798" text-anchor="middle">鉴权、绑 RunContext、选会话</text>
+
+  <rect x="372" y="138" width="290" height="48" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="517" y="158" font-size="14" font-weight="600" fill="#1f2937" text-anchor="middle">IM 机器人 / Webhook</text>
+  <text x="517" y="176" font-size="11" fill="#7c8798" text-anchor="middle">流式回包、会话来源解绑</text>
+
+  <rect x="680" y="138" width="334" height="48" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="847" y="158" font-size="14" font-weight="600" fill="#1f2937" text-anchor="middle">CLI / 定时任务 / 黄金集回放</text>
+  <text x="847" y="176" font-size="11" fill="#7c8798" text-anchor="middle">无登录态，显式构造 Subject</text>
+
+  <line x1="539" y1="200" x2="539" y2="246" stroke="#94a3b8" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+  <!-- ② 引擎层 -->
+  <rect x="48" y="216" width="982" height="276" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="64" y="242" font-size="13" font-weight="700" fill="#64748b">② 引擎层：ChatEngine 二选一（agent-kit.engine）</text>
+
+  <rect x="309" y="252" width="460" height="44" rx="22" fill="#eef4ff" stroke="#2f6feb"/>
+  <text x="539" y="272" font-size="14" font-weight="700" fill="#2f6feb" text-anchor="middle">«interface» ChatEngine</text>
+  <text x="539" y="288" font-size="10.5" fill="#4b6eaf" text-anchor="middle">handle(history, message, lastAgent, memories, sink) / engineName()</text>
+
+  <!-- legacy 泳道 -->
+  <rect x="64" y="314" width="440" height="162" rx="10" fill="#ffffff" stroke="#bcd0f7"/>
+  <text x="80" y="340" font-size="13" font-weight="700" fill="#2f6feb">自研引擎 legacy · 随 core 自带</text>
+
+  <rect x="80" y="352" width="118" height="44" rx="7" fill="#eef4ff" stroke="#bcd0f7"/>
+  <text x="139" y="379" font-size="12" font-weight="600" fill="#1f3f7a" text-anchor="middle">MainAgent</text>
+  <line x1="198" y1="374" x2="210" y2="374" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="210" y="352" width="118" height="44" rx="7" fill="#eef4ff" stroke="#bcd0f7"/>
+  <text x="269" y="379" font-size="12" font-weight="600" fill="#1f3f7a" text-anchor="middle">IntentRouter</text>
+  <line x1="328" y1="374" x2="340" y2="374" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="340" y="352" width="148" height="44" rx="7" fill="#eef4ff" stroke="#bcd0f7"/>
+  <text x="414" y="379" font-size="12" font-weight="600" fill="#1f3f7a" text-anchor="middle">SubAgentRunner</text>
+
+  <text x="80" y="416" font-size="11" fill="#64748b">JSON 文本协议 · 最多 max-steps 步 · 提示词顺序 v1/v2</text>
+  <text x="80" y="436" font-size="11" fill="#64748b">「已完成」由质量规则事后判定</text>
+  <text x="80" y="456" font-size="11" fill="#94a3b8">依赖：core 内置，不需要额外坐标</text>
+
+  <!-- agentscope 泳道 -->
+  <rect x="528" y="314" width="486" height="162" rx="10" fill="#ffffff" stroke="#d8c8f5"/>
+  <text x="544" y="340" font-size="13" font-weight="700" fill="#7a4ddb">AgentScope 引擎 · agent-kit-agentscope（可选）</text>
+
+  <rect x="544" y="352" width="148" height="44" rx="7" fill="#f4efff" stroke="#d8c8f5"/>
+  <text x="618" y="379" font-size="12" font-weight="600" fill="#4c2c93" text-anchor="middle">AgentScopeEngine</text>
+  <line x1="692" y1="374" x2="704" y2="374" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="704" y="352" width="120" height="44" rx="7" fill="#f4efff" stroke="#d8c8f5"/>
+  <text x="764" y="379" font-size="12" font-weight="600" fill="#4c2c93" text-anchor="middle">ReActAgent</text>
+  <line x1="824" y1="374" x2="836" y2="374" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="836" y="352" width="148" height="44" rx="7" fill="#f4efff" stroke="#d8c8f5"/>
+  <text x="910" y="372" font-size="11.5" font-weight="600" fill="#4c2c93" text-anchor="middle">PromptTail</text>
+  <text x="910" y="387" font-size="11.5" font-weight="600" fill="#4c2c93" text-anchor="middle">Middleware</text>
+
+  <text x="544" y="416" font-size="11" fill="#64748b">原生 tools 字段 · 中间件栈 · maxIters = max-steps</text>
+  <text x="544" y="436" font-size="11" fill="#64748b">写回执守门：零工具却称「已完成」→ 强制补一轮</text>
+  <text x="544" y="456" font-size="11" fill="#94a3b8">依赖：需显式引入，不引就只有 legacy</text>
+
+  <line x1="539" y1="492" x2="539" y2="502" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ③ 能力层 -->
+  <rect x="48" y="506" width="982" height="180" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="64" y="532" font-size="13" font-weight="700" fill="#64748b">③ 能力层：两套引擎共用，换引擎不改业务代码</text>
+
+  <rect x="64" y="544" width="470" height="56" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="80" y="566" font-size="12.5" font-weight="700" fill="#1f2937">Agent 与注册表</text>
+  <text x="80" y="586" font-size="11" fill="#64748b">AgentRegistry · Agent（提示词 + toolNames 白名单）</text>
+
+  <rect x="556" y="544" width="470" height="56" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="572" y="566" font-size="12.5" font-weight="700" fill="#1f2937">工具</text>
+  <text x="572" y="586" font-size="11" fill="#64748b">ToolRegistry · AgentTool · ToolInterceptor（权限/审计）</text>
+
+  <rect x="64" y="612" width="470" height="56" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="80" y="634" font-size="12.5" font-weight="700" fill="#1f2937">模型渠道</text>
+  <text x="80" y="654" font-size="11" fill="#64748b">DeepSeek · SiliconFlow · Ollama + FailoverModelProvider</text>
+
+  <rect x="556" y="612" width="470" height="56" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="572" y="634" font-size="12.5" font-weight="700" fill="#1f2937">提示词与路由</text>
+  <text x="572" y="654" font-size="11" fill="#64748b">PromptFragments · extra-instructions · RouterProperties</text>
+
+  <line x1="539" y1="686" x2="539" y2="698" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ④ 记忆与会话 -->
+  <rect x="48" y="700" width="982" height="128" rx="10" fill="#f7fdfb" stroke="#bfe6df"/>
+  <text x="64" y="726" font-size="13" font-weight="700" fill="#0f766e">④ 记忆与会话：agent-kit-memory（可选，不引则没有持久化会话）</text>
+
+  <rect x="64" y="740" width="470" height="72" rx="8" fill="#ffffff" stroke="#bfe6df"/>
+  <text x="80" y="762" font-size="12.5" font-weight="700" fill="#0f766e">长期记忆</text>
+  <text x="80" y="782" font-size="11" fill="#4b5563">AgentMemoryService：recall / remember / consolidateAsync</text>
+  <text x="80" y="800" font-size="11" fill="#4b5563">Milvus 向量 · EmbeddingClient · 冲突沉淀 · 自愈重建</text>
+
+  <rect x="556" y="740" width="470" height="72" rx="8" fill="#ffffff" stroke="#bfe6df"/>
+  <text x="572" y="762" font-size="12.5" font-weight="700" fill="#0f766e">会话上下文</text>
+  <text x="572" y="782" font-size="11" fill="#4b5563">AgentSessionStore：定位 / 历史 / 追加 / lastAgent</text>
+  <text x="572" y="800" font-size="11" fill="#4b5563">AgentContextCache（Redis 写穿）· AgentSessionLock 串行化</text>
+
+  <line x1="299" y1="828" x2="299" y2="840" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="791" y1="828" x2="791" y2="840" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ⑤ 数据与外部 -->
+  <rect x="48" y="844" width="982" height="104" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="64" y="870" font-size="13" font-weight="700" fill="#64748b">⑤ 数据与外部依赖</text>
+
+  <rect x="64" y="880" width="262" height="52" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="80" y="902" font-size="12.5" font-weight="700" fill="#334155">MySQL</text>
+  <text x="80" y="920" font-size="11" fill="#64748b">ai_* 十张表：明细 / 会话 / 记忆 / 评测</text>
+
+  <rect x="338" y="880" width="180" height="52" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="354" y="902" font-size="12.5" font-weight="700" fill="#334155">Redis</text>
+  <text x="354" y="920" font-size="11" fill="#64748b">会话缓存 + 会话锁</text>
+
+  <rect x="530" y="880" width="170" height="52" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="546" y="902" font-size="12.5" font-weight="700" fill="#334155">Milvus</text>
+  <text x="546" y="920" font-size="11" fill="#64748b">记忆向量索引</text>
+
+  <rect x="712" y="880" width="302" height="52" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="728" y="902" font-size="12.5" font-weight="700" fill="#334155">模型 API</text>
+  <text x="728" y="920" font-size="11" fill="#64748b">DeepSeek / SiliconFlow / 本地 Ollama</text>
+
+  <!-- starter 说明条 -->
+  <rect x="48" y="964" width="1384" height="34" rx="8" fill="#f1f5f9" stroke="#e2e8f0"/>
+  <text x="64" y="986" font-size="12" fill="#475569">agent-kit-starter 负责装配：组件扫描 · 配置绑定 · EngineGuard 校验（配置与模块必须配对） · 建表脚本 —— 引入即生效，不需要 scanBasePackages</text>
+
+  <!-- 右侧：观测与评测 -->
+  <line x1="1030" y1="380" x2="1058" y2="380" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+  <rect x="1060" y="216" width="372" height="300" rx="10" fill="#fffaf4" stroke="#f2ddc6"/>
+  <text x="1076" y="242" font-size="13" font-weight="700" fill="#b45309">可观测与评测：三层机制（core）</text>
+
+  <rect x="1076" y="258" width="340" height="40" rx="7" fill="#ffffff" stroke="#f2ddc6"/>
+  <text x="1092" y="282" font-size="11.5" fill="#7c2d12">RunScope：一次任务 = 一条 trace，线程内绑定</text>
+
+  <rect x="1076" y="306" width="340" height="40" rx="7" fill="#ffffff" stroke="#f2ddc6"/>
+  <text x="1092" y="330" font-size="11.5" fill="#7c2d12">ObsWriter → ai_run / ai_llm_call / ai_tool_call</text>
+
+  <rect x="1076" y="354" width="340" height="40" rx="7" fill="#ffffff" stroke="#f2ddc6"/>
+  <text x="1092" y="378" font-size="11.5" fill="#7c2d12">AiMetrics：25 个 ai_* 指标 → Prometheus</text>
+
+  <rect x="1076" y="402" width="340" height="40" rx="7" fill="#ffffff" stroke="#f2ddc6"/>
+  <text x="1092" y="426" font-size="11.5" fill="#7c2d12">AiTracing：OTel span → Langfuse 瀑布图</text>
+
+  <rect x="1076" y="450" width="340" height="40" rx="7" fill="#ffffff" stroke="#f2ddc6"/>
+  <text x="1092" y="474" font-size="11.5" fill="#7c2d12">QualityRules · JudgeService · GoldenSetRunner</text>
+
+  <text x="1076" y="508" font-size="10.5" fill="#92400e">明细异步落库：队列满时丢弃明细，永不阻塞对话</text>
+
+  <!-- 右侧：SPI 与配置 -->
+  <rect x="1060" y="536" width="372" height="412" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="1076" y="562" font-size="13" font-weight="700" fill="#64748b">SPI：业务侧实现，脚手架只留接口</text>
+
+  <rect x="1076" y="574" width="340" height="38" rx="7" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="1092" y="598" font-size="11.5" fill="#334155">RunContext.Subject — 调用方标识（不透明字符串）</text>
+
+  <rect x="1076" y="618" width="340" height="38" rx="7" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="1092" y="642" font-size="11.5" fill="#334155">ToolInterceptor — 权限 / 审计 / 限流 / 脱敏</text>
+
+  <rect x="1076" y="662" width="340" height="38" rx="7" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="1092" y="686" font-size="11.5" fill="#334155">TurnHook — 每轮开始 / 结束（预取、开作用域）</text>
+
+  <text x="1076" y="726" font-size="12" font-weight="700" fill="#64748b">配置前缀（都有默认值，按需覆写）</text>
+  <text x="1076" y="748" font-size="11" fill="#475569">agent-kit.engine = legacy | agentscope　← 引擎开关</text>
+  <text x="1076" y="768" font-size="11" fill="#475569">agent-kit.provider / endpoints / model　← 模型渠道</text>
+  <text x="1076" y="788" font-size="11" fill="#475569">agent-kit.obs.* / eval.* / memory.* / router.*</text>
+  <text x="1076" y="808" font-size="11" fill="#475569">agent-kit.agentscope.*　← 仅 agentscope 生效</text>
+
+  <text x="1076" y="844" font-size="12" font-weight="700" fill="#64748b">模块边界</text>
+  <text x="1076" y="866" font-size="11" fill="#475569">core ← memory（可选）← starter</text>
+  <text x="1076" y="886" font-size="11" fill="#475569">agentscope 只实现 ChatEngine，core 对它零依赖</text>
+  <text x="1076" y="906" font-size="11" fill="#475569">不引 agentscope 时只有 legacy，行为不受影响</text>
+  <text x="1076" y="928" font-size="11" fill="#94a3b8">两套引擎共用 ai_* 表、指标与黄金集</text>
+</svg>

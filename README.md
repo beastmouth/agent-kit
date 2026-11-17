@@ -9,6 +9,8 @@
 📖 **完整文档在 [`docs/`](docs/README.md)**：架构设计、快速开始、会话与记忆、可观测性、质量评测、接入清单、配置参考。
 🛠 **可跑示例在 [`examples/`](examples/README.md)**：假业务（待办 + 天气），四层适配层的模板。
 
+![agent-kit 架构总览](docs/images/architecture.svg)
+
 ---
 
 ## 1. 边界：故意不做什么
