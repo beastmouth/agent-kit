@@ -45,6 +45,30 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <!--
+            可观测三层（照 family 项目实测过的配方）：
+            actuator 提供 /actuator/prometheus 端点与 OTel 自动装配的入口；
+            bridge-otel 把脚手架打的 OTel span 接进 Micrometer Tracing；
+            exporter-otlp 把 span 推给 Langfuse（OTLP/HTTP）。
+            三者都只在本模块——脚手架刻意只依赖 opentelemetry-api，SDK 由使用方决定。
+            endpoint 不配（management.otlp.tracing 不出现）时埋点退化为 noop，零开销。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>

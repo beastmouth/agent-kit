@@ -2,14 +2,24 @@
 # 示例应用配置
 #
 # 起服务需要两样东西：MySQL（会话与观测明细）+ Redis（会话锁与会话缓存）。
-# 口令一律走环境变量，不要在仓库里出现明文。
 #
-#   export MYSQL_PASSWORD=...
-#   export REDIS_PASSWORD=...
+# 硬性约束：本文件（以及全仓库）不出现任何真实密钥、口令、内网地址。
+# 所有敏感值一律走环境变量——在本机 export，或写进不入库的启动脚本：
+#
+#   export MYSQL_HOST=...        # 数据库地址（默认 localhost）
+#   export MYSQL_PASSWORD=...    # 数据库口令
+#   export REDIS_HOST=...        # Redis 地址（默认 localhost）
+#   export REDIS_PASSWORD=...    # Redis 口令
+#   export CUSTOM_LLM_BASE_URL=...   # 自定义渠道：厂商地址（OpenAI 兼容）
+#   export CUSTOM_LLM_MODEL=...      # 自定义渠道：模型名
+#   export CUSTOM_LLM_API_KEY=...    # 自定义渠道：密钥
+#   export AGENT_KIT_PROVIDER=custom # 想默认走自定义渠道时再设
+#
 #   mysql -uroot -p agent_kit_demo < agent-kit-starter/src/main/resources/db/agent-kit-schema.sql
-#   mvn -pl examples/agent-kit-example -am spring-boot:run
+#   mvn -Pexamples -pl examples/agent-kit-example -am spring-boot:run
 #
-# 模型默认走本机 Ollama；换 DeepSeek 只需改 provider + 给 DEEPSEEK_API_KEY。
+# 模型默认走本机 Ollama；换 DeepSeek 设 provider=deepseek + DEEPSEEK_API_KEY，
+# 换任意 OpenAI 兼容网关设 CUSTOM_LLM_* 三个变量 + AGENT_KIT_PROVIDER=custom。
 # =============================================================================
 server:
   port: 18080
@@ -19,7 +29,7 @@ spring:
     name: agent-kit-example
 
   datasource:
-    url: jdbc:mysql://localhost:3306/agent_kit_demo?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/agent_kit_demo?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -31,7 +41,7 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
-      database: 0
+      database: ${REDIS_DATABASE:1}
 
 mybatis-plus:
   configuration:
@@ -46,7 +56,7 @@ agent-kit:
   # 用环境变量切换：AGENT_KIT_ENGINE=agentscope java -jar ...
   # 想验证「没引模块会怎样」：把 pom 里的 agent-kit-agentscope 注释掉再设成 agentscope，
   # 启动会在 Started 之前失败，并直接把该加的依赖片段打出来（EngineGuard 干的）。
-  engine: ${AGENT_KIT_ENGINE:legacy}
+  engine: ${AGENT_KIT_ENGINE:agentscope}
 
   # 只在 engine=agentscope 时生效
   agentscope:
@@ -62,13 +72,20 @@ agent-kit:
     default-tool-label: 处理
 
   # ---------------- 模型 ----------------
-  provider: ollama
-  base-url: http://localhost:11434
-  model: qwen3:8b
+  # custom = 自定义渠道的用法演示：endpoints 里没有内置实现的键会自动长成同名渠道（OpenAI 兼容）。
+  # base-url / model / api-key 全走环境变量，真实值（厂商地址与密钥）不进 git。
+  provider: ${AGENT_KIT_PROVIDER:ollama}
+  base-url: ${AGENT_KIT_BASE_URL:http://localhost:11434}
+  model: ${AGENT_KIT_MODEL:qwen3:8b}
   endpoints:
+    custom:
+      base-url: ${CUSTOM_LLM_BASE_URL:}
+      model: ${CUSTOM_LLM_MODEL:}
+      api-key: ${CUSTOM_LLM_API_KEY:}
+      think: true
     ollama:
-      base-url: http://localhost:11434
-      model: qwen3:8b
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      model: ${OLLAMA_MODEL:qwen3:8b}
       think: false
     deepseek:
       base-url: https://api.deepseek.com
@@ -140,6 +157,36 @@ agent-kit:
     args-chars: 1024
     # 示例把原文也写进 trace，方便对照；生产环境含隐私时应设 false
     trace-io-enabled: true
+    trace-io-chars: 8000
+
+# ---------------- 链路导出（OTel → Langfuse） ----------------
+# 脚手架只打 span（opentelemetry-api），送出去靠这里的 Micrometer Tracing 桥 + OTLP 导出器。
+# 不想接 Langfuse：删掉本块（或 TRACE_ENABLED=false），埋点自动退化为 noop，零开销零请求。
+# family 项目同款配方，字段含义见 docs/04-可观测性.md 第 3 节。
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  otlp:
+    tracing:
+      # 默认关：没有 endpoint / 没有 key 时 SDK 不建 exporter，span 不出网。
+      # 注意 Authorization 为空时打开开关，每条 trace 都会白跑一次 401——
+      # 所以两个变量要么都给、要么都不给。
+      export:
+        enabled: ${TRACE_ENABLED:false}
+      # Langfuse 的 OTLP 端点：{langfuse地址}/api/public/otel/v1/traces
+      endpoint: ${LANGFUSE_OTLP_ENDPOINT:}
+      headers:
+        # base64(pk-lf-...:sk-lf-...)，生成：echo -n "pk-lf-xxx:sk-lf-xxx" | base64
+        # 走环境变量，密钥不进 git（这是全仓库的硬性约束）
+        Authorization: ${LANGFUSE_AUTH_HEADER:}
+        # 不带这个头，Langfuse 会延迟最多 10 分钟才入库，看起来像「没上报」
+        x-langfuse-ingestion-version: "4"
+  tracing:
+    sampling:
+      # 1.0 = 全采样，本地排障用；上生产调回 0.1（trace 存储量与采样率线性相关）
+      probability: ${TRACE_SAMPLE:1.0}
 
   # ---------------- 评测 ----------------
   eval:
@@ -153,11 +200,11 @@ agent-kit:
   # 示例默认关：打开需要 Milvus 与一个嵌入模型（bge-m3），否则启动即报连接失败。
   # 关掉时 recall 返回空列表、consolidateAsync 直接返回，会话链路完全不受影响。
   memory:
-    enabled: false
-    base-url: http://localhost:11434/v1
+    enabled: ${MEMORY_ENABLED:false}
+    base-url: ${OLLAMA_BASE_URL:http://localhost:11434}/v1
     model: bge-m3
     dimensions: 1024
-    milvus-uri: http://localhost:19530
+    milvus-uri: ${MILVUS_URI:http://localhost:19530}
     collection: ai_agent_memory
     top-k: 5
     min-score: 0.35
