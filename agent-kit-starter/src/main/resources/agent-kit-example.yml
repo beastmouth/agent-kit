@@ -1,0 +1,154 @@
+# =============================================================================
+# agent-kit 配置示例
+#
+# 用法：把需要的段落抄进你自己的 application.yml（不是直接 import 本文件）。
+# 所有配置项都有默认值，最小可运行只需要 agent-kit.provider / base-url / model / api-key。
+# 本文件刻意不叫 application-*.yml，避免被 Spring Boot 当成 profile 自动加载。
+# =============================================================================
+
+agent-kit:
+  # 总开关：false 时整套组件不装配（代码在、能力关）
+  enabled: true
+
+  # ---------------- 模型渠道 ----------------
+  # 首选渠道，对应 ModelProvider#id()：deepseek / siliconflow / ollama
+  provider: deepseek
+  # 兜底渠道：首选失败或熔断期内直接走它；留空表示不兜底
+  fallback-provider: ollama
+  # 过载熔断冷却（秒）：首选失败后这段时间新请求直接走兜底
+  failover-cooldown-seconds: 60
+
+  # 顶层默认端点（未在 endpoints 里单独配置的渠道用它）
+  base-url: https://api.deepseek.com
+  model: deepseek-chat
+  api-key: ${DEEPSEEK_API_KEY:}
+
+  # 按渠道单独配置；键名 = ModelProvider#id()
+  endpoints:
+    deepseek:
+      base-url: https://api.deepseek.com
+      model: deepseek-chat
+      api-key: ${DEEPSEEK_API_KEY:}
+    siliconflow:
+      base-url: https://api.siliconflow.cn/v1
+      model: deepseek-ai/DeepSeek-V3
+      api-key: ${SILICONFLOW_API_KEY:}
+    ollama:
+      base-url: http://localhost:11434
+      model: qwen3:8b
+      # 本地模型的思考开关；null 表示不发送该字段
+      think: false
+
+  # 采样与预算
+  temperature: 0.1
+  timeout-seconds: 300
+  max-output-tokens: 3000
+  # 单轮最多几步「决策 → 调工具」，防死循环
+  max-steps: 4
+  history-limit: 12
+  # 流式请求是否索要 usage（不支持该字段的网关会自动去掉重试一次）
+  stream-usage: true
+
+  # ---------------- 提示词 ----------------
+  # v1 = 记忆在前（旧顺序）；v2 = 稳定前缀（工具/协议/风格在前，日期与记忆压到最后），
+  # 第二轮起 prompt cache 命中率明显更高。切换前建议先跑黄金集对比。
+  prompt-order: v2
+  # 业务口径追加在系统提示词末尾：术语、单位、行业规范、禁止行为。
+  # 脚手架不内置任何业务词，需要什么写这里。
+  extra-instructions: |
+    - 金额一律保留两位小数，单位用「元」。
+    - 拿不到数据就如实说「查不到」，不要估算。
+
+  # ---------------- 路由 ----------------
+  router:
+    # 追加在路由提示词后的业务说明：划清相近子助手的边界、声明能力边界
+    instructions: |
+      查询类与写操作都归 order 助手；order 助手做不到的事交给 feedback 助手如实说明。
+    # 关键词兜底：模型判「无关」时的第二道网。键名必须与已注册的 Agent#name() 一致
+    fallback-keywords:
+      order:
+        - 订单
+        - 下单
+        - 退款
+        - 改地址
+    # 短句追问的省略信号词：命中即延续上一轮实际处理的子 Agent
+    follow-up-words:
+      - 今天
+      - 昨天
+      - 上周
+      - 这个月
+      - 继续
+    follow-up-max-length: 10
+    # 未委派时的直答话术；留空则按已注册 Agent 的描述自动生成
+    fallback-reply: ""
+
+  # ---------------- 会话 ----------------
+  context-cache-enabled: true
+  context-cache-ttl-seconds: 1800
+  max-sessions-per-owner: 50
+
+  # ---------------- 线程池 ----------------
+  chat-pool-size: 8
+  chat-pool-queue: 50
+  chat-pool-keep-alive-seconds: 60
+
+  # ---------------- 可观测 ----------------
+  obs:
+    enabled: true
+    # 异步写入队列与批次：观测写入不能占用业务线程
+    queue-capacity: 10000
+    batch-size: 50
+    flush-interval-ms: 200
+    # 预览与入参截断
+    preview-chars: 200
+    args-chars: 1024
+    # 把原文写进 Langfuse 的 Input/Output（含隐私数据时设为 false）
+    trace-io-enabled: true
+    trace-io-chars: 8000
+    # 明细保留天数（配套清理任务；不配则只提示不删）
+    detail-retention-days: 90
+    # 价目表刷新间隔（秒）
+    price-refresh-seconds: 300
+    persist-llm-call: true
+    persist-tool-call: true
+
+  # ---------------- 评测 ----------------
+  eval:
+    enabled: true
+    # 在线抽样评审比例（0.05 = 5%）
+    sample-rate: 0.05
+    # LLM 评审需要显式配置模型，否则只告警跳过
+    judge-enabled: false
+    judge-provider: ""
+    judge-model: ""
+    judge-evidence-chars: 800
+    rubric-version: v2
+    # 黄金集（会在库里写数据，默认关，只由 CI/人工触发）
+    golden-enabled: false
+    golden-subject: golden-runner
+    golden-repeat: 1
+    golden-gate: non-regression
+    golden-max-drop: 0.02
+
+  # ---------------- 记忆（需要 agent-kit-memory 模块） ----------------
+  memory:
+    enabled: true
+    # 嵌入服务（OpenAI 兼容，含 /v1）
+    base-url: http://localhost:11434/v1
+    api-key: ""
+    model: bge-m3
+    dimensions: 1024
+    # Milvus；开了认证才需要填用户名密码
+    milvus-uri: http://localhost:19530
+    milvus-username: ""
+    milvus-password: ""
+    collection: ai_agent_memory
+    # 检索与提炼
+    top-k: 5
+    rule-top-k: 3
+    min-score: 0.35
+    max-per-owner: 200
+    # 提炼专用渠道（异步后台任务，建议本地小模型）；留空沿用主链路
+    chat-provider: ollama
+    # 提炼提示词模板：四个 %s 依次是 日期 / 现有记忆 / 用户原话 / 助手回复
+    # consolidate-prompt: ""   # 留空使用内置通用模板

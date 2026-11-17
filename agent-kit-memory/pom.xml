@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.beastmouth.kit</groupId>
+        <artifactId>agent-kit</artifactId>
+        <version>0.1.0</version>
+    </parent>
+
+    <artifactId>agent-kit-memory</artifactId>
+    <name>agent-kit-memory</name>
+    <description>可选模块：长期记忆（向量检索）与会话上下文（Redis 缓存 + 分布式锁）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.beastmouth.kit</groupId>
+            <artifactId>agent-kit-core</artifactId>
+        </dependency>
+        <!-- 长期记忆的语义检索：MySQL 存正文，Milvus 只存可重建的向量索引 -->
+        <dependency>
+            <groupId>io.milvus</groupId>
+            <artifactId>milvus-sdk-java</artifactId>
+        </dependency>
+        <!-- 会话上下文缓存与分布式锁 -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson-spring-boot-starter</artifactId>
+            <version>3.35.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
