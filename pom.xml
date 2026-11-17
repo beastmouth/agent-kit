@@ -22,6 +22,7 @@
         <module>agent-kit-core</module>
         <module>agent-kit-memory</module>
         <module>agent-kit-starter</module>
+        <module>examples/agent-kit-example</module>
     </modules>
 
     <properties>
@@ -44,6 +45,11 @@
             <dependency>
                 <groupId>com.beastmouth.kit</groupId>
                 <artifactId>agent-kit-memory</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.beastmouth.kit</groupId>
+                <artifactId>agent-kit-starter</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

@@ -1,0 +1,130 @@
+# =============================================================================
+# 示例应用配置
+#
+# 起服务需要两样东西：MySQL（会话与观测明细）+ Redis（会话锁与会话缓存）。
+# 口令一律走环境变量，不要在仓库里出现明文。
+#
+#   export MYSQL_PASSWORD=...
+#   export REDIS_PASSWORD=...
+#   mysql -uroot -p agent_kit_demo < agent-kit-starter/src/main/resources/db/agent-kit-schema.sql
+#   mvn -pl examples/agent-kit-example -am spring-boot:run
+#
+# 模型默认走本机 Ollama；换 DeepSeek 只需改 provider + 给 DEEPSEEK_API_KEY。
+# =============================================================================
+server:
+  port: 18080
+
+spring:
+  application:
+    name: agent-kit-example
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/agent_kit_demo?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 8
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+agent-kit:
+  # ---------------- 模型 ----------------
+  provider: ollama
+  base-url: http://localhost:11434
+  model: qwen3:8b
+  endpoints:
+    ollama:
+      base-url: http://localhost:11434
+      model: qwen3:8b
+      think: false
+    deepseek:
+      base-url: https://api.deepseek.com
+      model: deepseek-chat
+      api-key: ${DEEPSEEK_API_KEY:}
+  temperature: 0.1
+  timeout-seconds: 120
+  # 单轮最多几步「决策 → 调工具」，示例里有 1~2 步就够
+  max-steps: 4
+  history-limit: 12
+  # 稳定前缀在前的提示词顺序，第二轮起前缀缓存命中率更高
+  prompt-order: v2
+
+  # 业务口径：脚手架不内置任何业务词，术语与禁止行为写这里
+  extra-instructions: |
+    - 没有查到数据就直说「没有查到」，不要用常识补全。
+    - 回复保持简短，一件事说完就停。
+
+  # ---------------- 路由 ----------------
+  router:
+    # 模型判「无关」时的关键词兜底；键名必须与子 Agent 的 name() 一致
+    fallback-keywords:
+      todo:
+        - 待办
+        - 记一下
+        - 提醒我
+        - 做完了
+        - 划掉
+      weather:
+        - 天气
+        - 气温
+        - 冷不冷
+        - 带伞
+        - 几点
+    # 短句追问的省略信号词，命中即延续上一轮实际处理的子 Agent
+    follow-up-words:
+      - 继续
+      - 还有呢
+      - 那
+    follow-up-max-length: 10
+
+  # ---------------- 会话 ----------------
+  context-cache-enabled: true
+  context-cache-ttl-seconds: 1800
+  max-sessions-per-owner: 50
+
+  # ---------------- 可观测 ----------------
+  obs:
+    enabled: true
+    preview-chars: 200
+    args-chars: 1024
+    # 示例把原文也写进 trace，方便对照；生产环境含隐私时应设 false
+    trace-io-enabled: true
+
+  # ---------------- 评测 ----------------
+  eval:
+    # 确定性规则不花钱，打开可以看到每次运行的规则命中情况
+    enabled: true
+    sample-rate: 0
+    judge-enabled: false
+    golden-enabled: false
+
+  # ---------------- 记忆 ----------------
+  # 示例默认关：打开需要 Milvus 与一个嵌入模型（bge-m3），否则启动即报连接失败。
+  # 关掉时 recall 返回空列表、consolidateAsync 直接返回，会话链路完全不受影响。
+  memory:
+    enabled: false
+    base-url: http://localhost:11434/v1
+    model: bge-m3
+    dimensions: 1024
+    milvus-uri: http://localhost:19530
+    collection: ai_agent_memory
+    top-k: 5
+    min-score: 0.35
+
+# 示例自己的配置：分区键。多租户系统从登录态取，不要让客户端传
+demo:
+  namespace: demo
+
+logging:
+  level:
+    com.beastmouth.agentkit: INFO

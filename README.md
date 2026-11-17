@@ -30,8 +30,12 @@
 agent-kit
 ├── agent-kit-core      # 契约与运行时：模型、工具、Agent、观测、评测（无 DB 依赖也能编译）
 ├── agent-kit-memory    # 可选：长期记忆（Milvus 向量）与会话上下文（Redis 缓存 + 分布式锁）
-└── agent-kit-starter   # Spring Boot Starter：引入即装配 + 建表脚本 + 配置示例
+├── agent-kit-starter   # Spring Boot Starter：引入即装配 + 建表脚本 + 配置示例
+└── examples
+    └── agent-kit-example  # 可跑的假业务：待办 + 天气，演示 Agent/Tool/RunContext/会话与记忆四层适配
 ```
+
+> `examples/` **不是框架的一部分**，可以整目录删掉不影响构建；里面的代码是给业务侧抄的模板。
 
 包结构（`com.beastmouth.agentkit`）：
 
@@ -70,7 +74,7 @@ agent-kit
 mysql -uroot -p your_db < agent-kit-starter/src/main/resources/db/agent-kit-schema.sql
 ```
 
-九张表：`ai_run` / `ai_llm_call` / `ai_tool_call` / `ai_eval_score` / `ai_feedback` /
+十张表：`ai_run` / `ai_llm_call` / `ai_tool_call` / `ai_eval_score` / `ai_feedback` /
 `ai_golden_case` / `ai_price` / `ai_agent_session` / `ai_agent_message` / `ai_agent_memory`。
 都是纯日志或脚手架自有数据，可按时间清理。
 
@@ -166,6 +170,23 @@ try {
 }
 ```
 
+### 3.7 跑通示例
+
+不想从零拼装就先看 `examples/agent-kit-example`：一个假业务（待办 + 天气）把
+Agent、Tool、RunContext、会话与记忆四层全串起来了，包含可直接 curl 的 HTTP 入口。
+
+```bash
+mysql -uroot -p agent_kit_demo < agent-kit-starter/src/main/resources/db/agent-kit-schema.sql
+export MYSQL_PASSWORD=...  REDIS_PASSWORD=...
+mvn -pl examples/agent-kit-example -am spring-boot:run
+
+curl -s localhost:18080/demo/catalog                 # 看装了几个 Agent / 工具
+curl -s localhost:18080/demo/chat -H 'Content-Type: application/json' \
+  -d '{"subjectId":"u-42","role":"owner","message":"帮我记一下周五交房租"}'
+```
+
+文件索引与「业务侧抄哪几个类」见 [`examples/README.md`](examples/README.md)。
+
 ---
 
 ## 4. 五个扩展点
@@ -175,7 +196,7 @@ try {
 | 模型渠道 | `ModelProvider` | 接新厂商；OpenAI 兼容的继承 `OpenAiCompatibleProvider` 只改 id | 内置 deepseek / siliconflow / ollama |
 | 工具 | `AgentTool` | 业务能力 | 无工具，纯对话 |
 | 子 Agent | `Agent` | 领域拆分（提示词 + 工具白名单） | 主 Agent 直接回话 |
-| 工具横切 | `ToolInterceptor` | 权限、审计、限流、脱敏（可多个，按 `getOrder()` 执行） | 全放行 |
+| 工具横切 | `ToolInterceptor` | 权限、审计、限流、脱敏（可多个，用 `@Order` 定顺序） | 全放行 |
 | 每轮钩子 | `TurnHook` | 预取数据、开作用域、埋自定义指标 | 无操作 |
 | 渠道会话 | `SessionSourceRegistry` | 解绑后隐藏历史会话（IM 场景） | 按 `owner` 过滤 |
 
