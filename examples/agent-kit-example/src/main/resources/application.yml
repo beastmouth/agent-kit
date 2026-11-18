@@ -3,17 +3,19 @@
 #
 # 起服务需要两样东西：MySQL（会话与观测明细）+ Redis（会话锁与会话缓存）。
 #
-# 硬性约束：本文件（以及全仓库）不出现任何真实密钥、口令、内网地址。
-# 所有敏感值一律走环境变量——在本机 export，或写进不入库的启动脚本：
+# 敏感值一律走环境变量。本地测试不用挨个 export：
+#   cp .env.example .env   # 然后把真实值填进 .env（已 gitignore，绝不提交）
+# 下面的 spring.config.import 会把 .env 按属性源读进来，改完重启生效。
+# .env 找不到也不报错（optional），此时回退到系统环境变量 / 默认值。
 #
-#   export MYSQL_HOST=...        # 数据库地址（默认 localhost）
-#   export MYSQL_PASSWORD=...    # 数据库口令
-#   export REDIS_HOST=...        # Redis 地址（默认 localhost）
-#   export REDIS_PASSWORD=...    # Redis 口令
-#   export CUSTOM_LLM_BASE_URL=...   # 自定义渠道：厂商地址（OpenAI 兼容）
-#   export CUSTOM_LLM_MODEL=...      # 自定义渠道：模型名
-#   export CUSTOM_LLM_API_KEY=...    # 自定义渠道：密钥
-#   export AGENT_KIT_PROVIDER=custom # 想默认走自定义渠道时再设
+# 变量清单见 .env.example（与本文件 ${...} 占位一一对应）：
+#
+#   MYSQL_HOST / MYSQL_PASSWORD       # 数据库地址 / 口令
+#   REDIS_HOST / REDIS_PASSWORD       # Redis 地址 / 口令
+#   CUSTOM_LLM_BASE_URL=...   # 自定义渠道：厂商地址（OpenAI 兼容）
+#   CUSTOM_LLM_MODEL=...      # 自定义渠道：模型名
+#   CUSTOM_LLM_API_KEY=...    # 自定义渠道：密钥
+#   AGENT_KIT_PROVIDER=custom # 想默认走自定义渠道时再设
 #
 #   mysql -uroot -p agent_kit_demo < agent-kit-starter/src/main/resources/db/agent-kit-schema.sql
 #   mvn -Pexamples -pl examples/agent-kit-example -am spring-boot:run
@@ -27,6 +29,14 @@ server:
 spring:
   application:
     name: agent-kit-example
+
+  # 本地环境变量文件（.env，gitignore 排除）。KEY=VALUE 的 properties 格式，
+  # 与 .env.example 对应。optional：文件不存在时跳过，回退系统环境变量。
+  # 两个候选路径：从示例目录启动读前一个，从仓库根启动读后一个。
+  config:
+    import:
+      - optional:file:./.env[.properties]
+      - optional:file:./examples/agent-kit-example/.env[.properties]
 
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/agent_kit_demo?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true

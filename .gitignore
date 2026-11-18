@@ -26,6 +26,7 @@ Thumbs.db
 logs/
 tmp/
 .env
+.workbuddy/
 
 # ---- 本地覆盖配置（可能含密钥，绝不提交）----
 application-local.yml
