@@ -6,10 +6,13 @@ import com.beastmouth.agentkit.agent.IntentRouter;
 import com.beastmouth.agentkit.agentscope.engine.AgentScopeEngine;
 import com.beastmouth.agentkit.agentscope.obs.RuntimeObs;
 import com.beastmouth.agentkit.config.AiProperties;
+import com.beastmouth.agentkit.context.CompactionProperties;
+import com.beastmouth.agentkit.context.ContextCompactor;
 import com.beastmouth.agentkit.provider.ModelRouter;
 import com.beastmouth.agentkit.tool.ToolInterceptor;
 import com.beastmouth.agentkit.tool.ToolRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -50,8 +53,11 @@ public class AgentScopeConfig {
                                            ModelRouter modelRouter,
                                            RuntimeObs runtimeObs,
                                            AgentScopeProperties scopeProperties,
-                                           List<ToolInterceptor> toolInterceptors) {
+                                           List<ToolInterceptor> toolInterceptors,
+                                           ObjectProvider<ContextCompactor> contextCompactor,
+                                           CompactionProperties compactionProperties) {
         return new AgentScopeEngine(aiProperties, toolRegistry, agentRegistry, intentRouter,
-                modelRouter, runtimeObs, scopeProperties, toolInterceptors);
+                modelRouter, runtimeObs, scopeProperties, toolInterceptors,
+                contextCompactor.getIfAvailable(), compactionProperties);
     }
 }

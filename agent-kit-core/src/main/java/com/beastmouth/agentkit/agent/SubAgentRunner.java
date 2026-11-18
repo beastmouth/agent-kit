@@ -4,6 +4,12 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.beastmouth.agentkit.agent.AgentResult.ToolEvent;
+import com.beastmouth.agentkit.context.CompactOutcome;
+import com.beastmouth.agentkit.context.CompactRequest;
+import com.beastmouth.agentkit.context.CompactionProperties;
+import com.beastmouth.agentkit.context.ContextCompactor;
+import com.beastmouth.agentkit.context.RunContext;
+import com.beastmouth.agentkit.context.ToolResultClamp;
 import com.beastmouth.agentkit.context.TurnHook;
 import com.beastmouth.agentkit.tool.AgentTool;
 import com.beastmouth.agentkit.tool.ToolInterceptor;
@@ -23,6 +29,7 @@ import com.beastmouth.agentkit.provider.ModelRouter;
 import io.opentelemetry.api.trace.Span;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -78,6 +85,15 @@ public class SubAgentRunner {
     private final ObservedModelCall observed;
     private final ObsWriter obsWriter;
     private final ObsProperties obsProperties;
+    /**
+     * 上下文压缩器（可选）。
+     *
+     * <p>用 {@link ObjectProvider} 而不是直接注入：精简装配与单测里没有这个 Bean 也要能跑，
+     * 此时退化为「不压缩」，与引入压缩之前行为一致。</p>
+     */
+    private final ObjectProvider<ContextCompactor> contextCompactors;
+    /** 工具结果截断阈值等上下文治理配置；非 Spring 场景可为 null */
+    private final CompactionProperties compactionProperties;
 
     /**
      * 执行一个子 Agent。
@@ -147,6 +163,35 @@ public class SubAgentRunner {
         }
     }
 
+    /**
+     * 压缩历史。
+     *
+     * <p>与 AgentScope 引擎共用同一个 {@link ContextCompactor}：策略只写一份，
+     * 否则同一个配置在两套引擎下表现不同，A/B 出来的差异分不清是引擎造成的还是压缩造成的。</p>
+     *
+     * <p>返回原列表引用表示「未压缩」——未压缩是热路径，不复制列表。</p>
+     */
+    private List<ChatMessage> compactHistory(List<ChatMessage> history, String userMessage, String agentName) {
+        ContextCompactor compactor = contextCompactors == null ? null : contextCompactors.getIfAvailable();
+        if (compactor == null || !compactor.enabled()) {
+            return history;
+        }
+        CompactRequest request = CompactRequest.of(RunContext.subjectId(), history, userMessage);
+        CompactOutcome outcome = compactor.compact(request);
+        if (outcome == null || !outcome.compacted()) {
+            return history;
+        }
+        log.info("SubAgentRunner#compact#上下文已压缩 agent={} 原条数={} 压缩条数={} 保留={} reused={} 省字符={}",
+                agentName, history.size(), outcome.coveredCount(),
+                outcome.history().size() - 1, outcome.reused(), outcome.savedChars());
+        return outcome.history();
+    }
+
+    /** 工具结果截断阈值；未配置时为 0（不截断） */
+    private int unloadThreshold() {
+        return compactionProperties == null ? 0 : compactionProperties.getUnloadThresholdChars();
+    }
+
     private AgentResult runInternal(Agent agent, List<ChatMessage> history, String userMessage,
                                     List<String> memories, ChatSink sink) {
         // 渠道按路由解析：同一个会话里不同子 Agent 可以用不同渠道，
@@ -154,7 +199,10 @@ public class SubAgentRunner {
         ModelProvider provider = modelRouter.forAgent(agent);
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(ChatMessage.system(buildSystemPrompt(agent, memories)));
-        messages.addAll(history);
+        // 压缩只做一次、只在入口做：下面的循环会反复往 messages 里追加工具往返，
+        // 若在循环里压，摘要会覆盖到「本轮工具结果」，而工具结果本来就不落库、
+        // 下一轮也读不到——压了等于白花一次 LLM 调用
+        messages.addAll(compactHistory(history, userMessage, agent.name()));
         messages.add(ChatMessage.user(userMessage));
 
         List<ToolEvent> events = new ArrayList<>();
@@ -227,7 +275,8 @@ public class SubAgentRunner {
                         .append('\n');
             }
             messages.add(ChatMessage.assistant(decision.toJSONString()));
-            messages.add(ChatMessage.user("工具结果（按调用顺序）：\n" + results.toString().strip()));
+            messages.add(ChatMessage.user("工具结果（按调用顺序）：\n"
+                    + ToolResultClamp.clamp(results.toString().strip(), unloadThreshold(), null)));
         }
 
         log.warn("SubAgentRunner#run#超过最大轮次 agent={} steps={}", agent.name(), properties.getMaxSteps());

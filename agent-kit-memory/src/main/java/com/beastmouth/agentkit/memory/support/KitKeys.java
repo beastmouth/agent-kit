@@ -21,6 +21,17 @@ public final class KitKeys {
         return PREFIX + "ctx:" + part(namespace) + ":" + part(owner) + ":" + sessionId;
     }
 
+    /**
+     * 上下文摘要（压缩产物），按前缀指纹分版本。
+     *
+     * <p>{@code coveredKey} 是被压缩前缀的内容指纹：同一指纹必然命中同一份摘要，
+     * 这是前缀缓存能继续生效的前提。{@code scope} 是隔离键（通常为调用方标识），
+     * 只负责把不同租户分开，不参与「摘要是否可复用」的判定。</p>
+     */
+    public static String contextSummary(String scope, String coveredKey) {
+        return PREFIX + "ctxsum:" + part(scope) + ":" + part(coveredKey);
+    }
+
     /** 记忆版本号：记忆一写入就 bump，让检索缓存自然失效 */
     public static String memoryVersion(String namespace, String owner) {
         return PREFIX + "memver:" + part(namespace) + ":" + part(owner);

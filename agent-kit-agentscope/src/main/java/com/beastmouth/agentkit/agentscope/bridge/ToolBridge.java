@@ -2,6 +2,7 @@ package com.beastmouth.agentkit.agentscope.bridge;
 
 import com.alibaba.fastjson2.JSON;
 import com.beastmouth.agentkit.context.RunContext;
+import com.beastmouth.agentkit.context.ToolResultClamp;
 import com.beastmouth.agentkit.obs.ObsHub;
 import com.beastmouth.agentkit.obs.RunScope;
 import com.beastmouth.agentkit.obs.ToolCallRecorder;
@@ -76,11 +77,19 @@ public class ToolBridge implements io.agentscope.core.tool.AgentTool {
     private final Map<String, Object> parameters;
     private final int argsChars;
     private final List<ToolInterceptor> interceptors;
+    /** 单条工具结果上限；0 表示不截断。与 legacy 引擎共用同一个配置项 */
+    private final int maxResultChars;
 
     public ToolBridge(AgentTool delegate, int argsChars, List<ToolInterceptor> interceptors) {
+        this(delegate, argsChars, interceptors, 0);
+    }
+
+    public ToolBridge(AgentTool delegate, int argsChars, List<ToolInterceptor> interceptors,
+                      int maxResultChars) {
         this.delegate = delegate;
         this.argsChars = argsChars > 0 ? argsChars : DEFAULT_ARGS_CHARS;
         this.interceptors = interceptors == null ? List.of() : List.copyOf(interceptors);
+        this.maxResultChars = Math.max(0, maxResultChars);
         this.parameters = parseSchema(delegate);
     }
 
@@ -286,7 +295,11 @@ public class ToolBridge implements io.agentscope.core.tool.AgentTool {
         return ToolResultBlock.builder()
                 .id(toolId)
                 .name(delegate.name())
-                .output(TextBlock.builder().text(outcome.summary() == null ? "" : outcome.summary()).build())
+                .output(TextBlock.builder()
+                        .text(ToolResultClamp.clamp(
+                                outcome.summary() == null ? "" : outcome.summary(),
+                                maxResultChars, delegate.name()))
+                        .build())
                 .metadata(metadata)
                 .state(outcome.success() ? ToolResultState.SUCCESS : ToolResultState.ERROR)
                 .build();

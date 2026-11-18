@@ -17,6 +17,10 @@ import com.beastmouth.agentkit.provider.ModelRouter;
 import com.beastmouth.agentkit.agentscope.obs.ObservingHook;
 import com.beastmouth.agentkit.agentscope.obs.RuntimeObs;
 import com.beastmouth.agentkit.config.AiProperties;
+import com.beastmouth.agentkit.context.CompactOutcome;
+import com.beastmouth.agentkit.context.CompactRequest;
+import com.beastmouth.agentkit.context.CompactionProperties;
+import com.beastmouth.agentkit.context.ContextCompactor;
 import com.beastmouth.agentkit.context.RunContext;
 import com.beastmouth.agentkit.model.ChatMessage;
 import com.beastmouth.agentkit.obs.LlmCallRecorder;
@@ -87,6 +91,17 @@ public class AgentScopeEngine implements ChatEngine {
     private static final String DEFAULT_WRITE_CLAIM_PATTERN =
             "已完成|已处理|已提交|已保存|已创建|已更新|已删除|操作成功";
 
+    /**
+     * 上下文超长的错误措辞。
+     *
+     * <p>各家写法不同（OpenAI 系 {@code context_length_exceeded}、Anthropic 系
+     * {@code prompt is too long}、部分网关只回一句 {@code maximum context length}），
+     * 这里只收<b>确定无歧义</b>的几种；宁可漏判（不重试），不可误判（每条失败都白打一次模型）。</p>
+     */
+    private static final List<String> OVERFLOW_HINTS = List.of(
+            "context_length_exceeded", "maximum context", "context length",
+            "token limit", "too many tokens", "reduce the length");
+
     private final AiProperties aiProperties;
     /**
      * 渠道路由（可空：单测/PoC 装配不传，此时退回全局默认渠道）。
@@ -103,6 +118,17 @@ public class AgentScopeEngine implements ChatEngine {
     private final AgentScopeProperties scopeProperties;
     private final List<ToolInterceptor> toolInterceptors;
     private final Pattern writeClaimPattern;
+
+    /**
+     * 上下文压缩器，可为 null（单测 / 精简装配）。
+     *
+     * <p>与 legacy 引擎共用同一个实现：压缩策略若各写一份，同一个配置在两套引擎下
+     * 表现不同，A/B 出来的差异就分不清是引擎造成的还是压缩造成的。</p>
+     */
+    private final ContextCompactor contextCompactor;
+
+    /** 工具结果截断阈值等上下文治理配置 */
+    private final CompactionProperties compactionProperties;
 
     /**
      * 子 Agent 的 Toolkit 缓存。
@@ -151,7 +177,9 @@ public class AgentScopeEngine implements ChatEngine {
                             AgentRegistry agentRegistry, IntentRouter intentRouter,
                             ModelRouter modelRouter,
                             RuntimeObs obs, AgentScopeProperties scopeProperties,
-                            List<ToolInterceptor> toolInterceptors) {
+                            List<ToolInterceptor> toolInterceptors,
+                            ContextCompactor contextCompactor,
+                            CompactionProperties compactionProperties) {
         this.aiProperties = aiProperties;
         this.modelRouter = modelRouter;
         this.toolRegistry = toolRegistry;
@@ -160,6 +188,9 @@ public class AgentScopeEngine implements ChatEngine {
         this.obs = obs == null ? RuntimeObs.DISABLED : obs;
         this.scopeProperties = scopeProperties == null ? new AgentScopeProperties() : scopeProperties;
         this.toolInterceptors = toolInterceptors == null ? List.of() : List.copyOf(toolInterceptors);
+        this.contextCompactor = contextCompactor;
+        this.compactionProperties = compactionProperties == null
+                ? new CompactionProperties() : compactionProperties;
         this.writeClaimPattern = compileClaimPattern(this.scopeProperties.getWriteClaimPattern());
     }
 
@@ -167,7 +198,7 @@ public class AgentScopeEngine implements ChatEngine {
     public AgentScopeEngine(AiProperties aiProperties, ToolRegistry toolRegistry,
                             AgentRegistry agentRegistry, IntentRouter intentRouter) {
         this(aiProperties, toolRegistry, agentRegistry, intentRouter, null,
-                RuntimeObs.DISABLED, new AgentScopeProperties(), List.of());
+                RuntimeObs.DISABLED, new AgentScopeProperties(), List.of(), null, null);
     }
 
     private static Pattern compileClaimPattern(String regex) {
@@ -251,7 +282,10 @@ public class AgentScopeEngine implements ChatEngine {
             ReActAgent reactAgent = buildAgent(target, scope);
 
             RuntimeContext ctx = buildRuntimeContext(memories, scope);
-            List<Msg> messages = toMessages(history, userMessage);
+            // 压缩必须发生在 toMessages 之前：它处理的是「我们自己的历史模型」，
+            // 而不是框架的 Msg。放在这条线上还有一个好处——legacy 引擎能用同一份实现。
+            List<ChatMessage> effective = compactHistory(history, userMessage, false, target.name());
+            List<Msg> messages = toMessages(effective, userMessage);
 
             Event last;
             try {
@@ -259,8 +293,27 @@ public class AgentScopeEngine implements ChatEngine {
                         .doOnNext(event -> dispatch(event, out, events, streamed))
                         .blockLast();
             } catch (RuntimeException e) {
-                log.error("AgentScopeEngine#runOne#执行失败 agent={} err={}", target.name(), e.toString());
-                throw e;
+                // 只要正文还没流出去，就可以用更激进的压缩再试一次；已经流出去的不能重来，
+                // 否则前端会看到两段重复的回答
+                List<ChatMessage> forced = streamed.isEmpty()
+                        ? compactHistory(history, userMessage, true, target.name())
+                        : history;
+                if (forced == history || !isContextOverflow(e)) {
+                    log.error("AgentScopeEngine#runOne#执行失败 agent={} err={}", target.name(), e.toString());
+                    throw e;
+                }
+                log.warn("AgentScopeEngine#runOne#上下文溢出，强制压缩后重试一次 agent={} 原条数={} 压缩后={} err={}",
+                        target.name(), history.size(), forced.size(), e.toString());
+                messages = toMessages(forced, userMessage);
+                try {
+                    last = reactAgent.stream(messages, StreamOptions.builder().build(), ctx)
+                            .doOnNext(event -> dispatch(event, out, events, streamed))
+                            .blockLast();
+                } catch (RuntimeException retryError) {
+                    log.error("AgentScopeEngine#runOne#压缩重试仍失败 agent={} err={}",
+                            target.name(), retryError.toString());
+                    throw retryError;
+                }
             }
 
             String reply = last == null || last.getMessage() == null ? "" : textOf(last.getMessage());
@@ -303,6 +356,53 @@ public class AgentScopeEngine implements ChatEngine {
         } finally {
             obs.finish(scope, status, errorCode);
         }
+    }
+
+    /**
+     * 压缩历史。
+     *
+     * <p>返回原列表<b>引用</b>表示「没有发生压缩」——调用方靠引用比较判断能不能用更激进的
+     * 参数重试。这不是取巧：未压缩时本来就不该复制一遍列表（热路径每轮都走这里）。</p>
+     */
+    private List<ChatMessage> compactHistory(List<ChatMessage> history, String userMessage,
+                                             boolean force, String agentName) {
+        if (contextCompactor == null || !contextCompactor.enabled()) {
+            return history;
+        }
+        CompactRequest request = CompactRequest.of(RunContext.subjectId(), history, userMessage);
+        CompactOutcome outcome = contextCompactor.compact(force ? request.forced() : request);
+        if (outcome == null || !outcome.compacted()) {
+            return history;
+        }
+        log.info("AgentScopeEngine#compact#上下文已压缩 agent={} 原条数={} 压缩条数={} 保留={} reused={} 省字符={}",
+                agentName, history.size(), outcome.coveredCount(),
+                outcome.history().size() - 1, outcome.reused(), outcome.savedChars());
+        return outcome.history();
+    }
+
+    /**
+     * 是否「上下文超长」类错误。
+     *
+     * <p>只认这几种措辞：误判会让每个普通失败都白打一次模型，成本比不重试更高。
+     * 判断沿异常链走——框架/传输层常把真正的错误包一层再抛。</p>
+     */
+    private boolean isContextOverflow(Throwable error) {
+        if (contextCompactor == null || !contextCompactor.retryOnOverflow()) {
+            return false;
+        }
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            String message = current.getMessage();
+            if (message == null) {
+                continue;
+            }
+            String lower = message.toLowerCase();
+            for (String hint : OVERFLOW_HINTS) {
+                if (lower.contains(hint)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -751,7 +851,8 @@ public class AgentScopeEngine implements ChatEngine {
                         target.name(), name);
                 return;
             }
-            ToolBridge bridge = new ToolBridge(tool, argsChars, toolInterceptors);
+            ToolBridge bridge = new ToolBridge(tool, argsChars, toolInterceptors,
+                    compactionProperties.getUnloadThresholdChars());
             toolkit.registerAgentTool(bridge);
             schemaChars[0] += schemaChars(bridge);
         });
