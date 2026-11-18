@@ -22,7 +22,7 @@
 
         <!--
             AgentScope 核心。刻意不用 agentscope-spring-boot-starter：
-            它的 spring-boot-autoconfigure 是 4.0.1，与 Spring Boot 3.3.5 冲突。
+            它的 spring-boot-autoconfigure 是 4.0.1，与 Boot 4.1 的模块化自动配置冲突。
             这里只引 core，装配由 AgentScopeConfig 自己写。
         -->
         <dependency>

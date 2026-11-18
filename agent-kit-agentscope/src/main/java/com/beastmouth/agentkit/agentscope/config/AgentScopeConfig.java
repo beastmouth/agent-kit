@@ -25,7 +25,7 @@ import java.util.List;
  * 不会出现「两个 ChatEngine 抢注入」的歧义。</p>
  *
  * <p>刻意不引 {@code agentscope-spring-boot-starter}：它依赖 {@code spring-boot-autoconfigure 4.0.1}，
- * 在 Boot 3.3.5 的上下文里加载不了。这里手工装配，只用到框架的运行时能力，不碰它的自动配置。</p>
+ * 与 Boot 4.1 的模块化自动配置冲突。这里手工装配，只用到框架的运行时能力，不碰它的自动配置。</p>
  *
  * <p><b>为什么是 {@code @Configuration} 而不是 {@code @AutoConfiguration}</b>：
  * starter 的 {@code AgentKitAutoConfiguration} 已经整包扫描 {@code com.beastmouth.agentkit}，

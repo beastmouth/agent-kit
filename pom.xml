@@ -4,10 +4,10 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <parent>
+        <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.5</version>
+        <version>4.1.2</version>
         <relativePath/>
     </parent>
 
@@ -29,7 +29,7 @@
         <java.version>17</java.version>
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <mybatis-plus.version>3.5.7</mybatis-plus.version>
+        <mybatis-plus.version>3.5.18</mybatis-plus.version>
         <fastjson2.version>2.0.53</fastjson2.version>
         <ttl.version>2.14.5</ttl.version>
         <milvus-sdk.version>2.5.14</milvus-sdk.version>
@@ -65,7 +65,7 @@
             <!--
                 AgentScope BOM：只统一它的几个构件版本。
                 刻意不引 agentscope-spring-boot-starter：它依赖 spring-boot-autoconfigure 4.0.1，
-                与 Boot 3.3.5 冲突，装配由本仓库的 AgentScopeConfig 自己写。
+                与 Boot 4.1.2 的模块化自动配置冲突，装配由本仓库的 AgentScopeConfig 自己写。
             -->
             <dependency>
                 <groupId>io.agentscope</groupId>
@@ -76,7 +76,7 @@
             </dependency>
             <dependency>
                 <groupId>com.baomidou</groupId>
-                <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+                <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
                 <version>${mybatis-plus.version}</version>
             </dependency>
             <dependency>

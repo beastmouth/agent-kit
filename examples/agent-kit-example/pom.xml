@@ -41,9 +41,10 @@
             <groupId>com.beastmouth.kit</groupId>
             <artifactId>agent-kit-agentscope</artifactId>
         </dependency>
+        <!-- Boot 4 起 web starter 更名 webmvc（旧名废弃） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
         <!--
             可观测三层（照 family 项目实测过的配方）：
