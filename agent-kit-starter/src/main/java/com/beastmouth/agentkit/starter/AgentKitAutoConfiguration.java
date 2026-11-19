@@ -1,12 +1,15 @@
 package com.beastmouth.agentkit.starter;
 
 import com.beastmouth.agentkit.agent.ChatEngine;
+import org.apache.ibatis.annotations.Mapper;
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FullyQualifiedAnnotationBeanNameGenerator;
 import org.springframework.core.env.Environment;
 
 /**
@@ -29,7 +32,20 @@ import org.springframework.core.env.Environment;
  * 比改依赖坐标现实。</p>
  */
 @AutoConfiguration
-@ComponentScan(basePackages = "com.beastmouth.agentkit")
+@ComponentScan(basePackages = "com.beastmouth.agentkit",
+        nameGenerator = FullyQualifiedAnnotationBeanNameGenerator.class)
+/*
+ * Mapper 必须在这里显式扫描：使用方的 @SpringBootApplication 只扫自己的包，
+ * MyBatis 的 AutoConfiguredMapperScannerRegistrar 也只认主类所在包，
+ * 不声明这一行，本 starter 的 Mapper 在别人的工程里一个都不会被注册
+ * （现象是 CostCalculator 之类报「required a bean of type XxxMapper」）。
+ * bean 名同样用全限定名，避免与使用方同名 Mapper 冲突。
+ * annotationClass 必须限定：@MapperScan 默认把包下「所有接口」都注册成 Mapper，
+ * 会把 ModelProvider 这类业务接口也代理掉，报 Invalid bound statement。
+ */
+@MapperScan(basePackages = "com.beastmouth.agentkit",
+        annotationClass = Mapper.class,
+        nameGenerator = FullyQualifiedAnnotationBeanNameGenerator.class)
 @ConditionalOnProperty(prefix = "agent-kit", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class AgentKitAutoConfiguration {
 
