@@ -25,10 +25,14 @@ public class CompactionProperties {
     /**
      * 触发压缩的估算 token 数。
      *
+     * <p>8000 是按实测定的（docs/10 §6）：一次业务对话的 input 约 1.25k tokens，
+     * 其中历史只占 ~200，其余是 system + 工具 schema。所以这个阈值不是日常路径，
+     * 而是「工具结果肥 / history-limit 被调大」时的保险丝——平时永远不会触发。</p>
+     *
      * <p>估算用 {@link #charsPerToken} 折算，误差不影响正确性——压缩早晚一点都可以，
      * 压错了才会出事，而「压错了」由前缀指纹与摘要复用机制兜住。</p>
      */
-    private int triggerTokens = 24000;
+    private int triggerTokens = 8000;
 
     /** 按消息条数触发；0 表示只看 token */
     private int triggerMessages = 0;
